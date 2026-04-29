@@ -1,0 +1,124 @@
+# Physical Configuration for Stardust-Go
+# This file defines the thermal, battery, and power properties for satellites
+
+# Default thermal properties for different satellite types
+thermal:
+  # 3U CubeSat default properties
+  cubeSat3U:
+    thermalMass: 3500.0          # J/K - heat capacity
+    surfaceArea: 0.14            # m²
+    absorptivity: 0.92           # solar absorption (0-1)
+    emissivity: 0.85             # thermal emission (0-1)
+    maxTemperature: 333.15      # K (60°C)
+    minTemperature: 253.15      # K (-20°C)
+  
+  # 6U CubeSat default properties
+  cubeSat6U:
+    thermalMass: 7000.0          # J/K
+    surfaceArea: 0.28            # m²
+    absorptivity: 0.92
+    emissivity: 0.85
+    maxTemperature: 333.15      # K
+    minTemperature: 253.15      # K
+  
+  # Large satellite default properties
+  largeSat:
+    thermalMass: 50000.0        # J/K
+    surfaceArea: 2.0            # m²
+    absorptivity: 0.85
+    emissivity: 0.90
+    maxTemperature: 323.15      # K (50°C)
+    minTemperature: 243.15      # K (-30°C)
+  
+  # Default fallback
+  default:
+    thermalMass: 3500.0
+    surfaceArea: 0.14
+    absorptivity: 0.92
+    emissivity: 0.85
+    maxTemperature: 333.15
+    minTemperature: 253.15
+
+# Battery properties for different satellite types
+battery:
+  cubeSat3U:
+    capacity: 10.0              # Ah
+    nominalVoltage: 7.4         # V (2S Li-ion)
+    coulombEfficiency: 0.95     # 95%
+    maxDoD: 0.8                 # 80% max depth of discharge
+    criticalSOC: 0.2            # 20% critical threshold
+    internalResistance: 0.1     # Ohms
+    maxVoltage: 8.4             # V
+    minVoltage: 6.0            # V
+  
+  cubeSat6U:
+    capacity: 20.0              # Ah
+    nominalVoltage: 14.8        # V (4S Li-ion)
+    coulombEfficiency: 0.95
+    maxDoD: 0.8
+    criticalSOC: 0.2
+    internalResistance: 0.05     # Ohms
+    maxVoltage: 16.8            # V
+    minVoltage: 12.0            # V
+  
+  largeSat:
+    capacity: 100.0             # Ah
+    nominalVoltage: 28.0        # V
+    coulombEfficiency: 0.97
+    maxDoD: 0.7                 # 70% for larger batteries
+    criticalSOC: 0.15           # 15%
+    internalResistance: 0.02    # Ohms
+    maxVoltage: 33.6            # V
+    minVoltage: 21.0            # V
+  
+  default:
+    capacity: 10.0
+    nominalVoltage: 7.4
+    coulombEfficiency: 0.95
+    maxDoD: 0.8
+    criticalSOC: 0.2
+    internalResistance: 0.1
+    maxVoltage: 8.4
+    minVoltage: 6.0
+
+# Power generation properties for different satellite types
+power:
+  cubeSat3U:
+    solarEfficiency: 0.28       # multi-junction GaAs
+    solarPanelArea: 0.08         # m²
+    maxPowerGeneration: 40.0    # W
+    idlePowerConsumption: 2.0   # W
+  
+  cubeSat6U:
+    solarEfficiency: 0.30
+    solarPanelArea: 0.16         # m²
+    maxPowerGeneration: 80.0    # W
+    idlePowerConsumption: 3.0   # W
+  
+  largeSat:
+    solarEfficiency: 0.32
+    solarPanelArea: 10.0        # m²
+    maxPowerGeneration: 5000.0  # W
+    idlePowerConsumption: 50.0   # W
+  
+  default:
+    solarEfficiency: 0.28
+    solarPanelArea: 0.08
+    maxPowerGeneration: 40.0
+    idlePowerConsumption: 2.0
+
+# Physical constants (usually not changed)
+constants:
+  stefanBoltzmann: 5.670374419e-8  # W/(m²·K⁴)
+  solarConstant: 1361.0            # W/m² at Earth
+  earthAlbedo: 0.3                 # average albedo
+  earthTemperature: 255.0          # K (effective blackbody)
+  earthRadius: 6371000.0           # m
+  speedOfLight: 299792458.0        # m/s
+
+# Simulation settings
+simulation:
+  timeStep: 1.0                  # seconds
+  enableCyberPhysicalFeedback: true
+  thermalWarningThreshold: 0.9   # 90% of max temp
+  batteryCriticalThreshold: 0.2  # 20% SOC
