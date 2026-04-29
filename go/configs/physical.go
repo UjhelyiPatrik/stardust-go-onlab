@@ -13,11 +13,11 @@ import (
 
 // PhysicalConfig holds all physical configuration for satellites
 type PhysicalConfig struct {
-	Thermal    ThermalConfig    `yaml:"thermal"`
-	Battery    BatteryConfig    `yaml:"battery"`
-	Power      PowerConfig      `yaml:"power"`
-	Constants  ConstantsConfig  `yaml:"constants"`
-	Simulation SimulationConfig `yaml:"simulation"`
+	Thermal    ThermalConfig            `yaml:"thermal"`
+	Battery    BatteryConfig            `yaml:"battery"`
+	Power      PowerConfig              `yaml:"power"`
+	Constants  ConstantsConfig          `yaml:"constants"`
+	Simulation PhysicalSimulationConfig `yaml:"simulation"`
 }
 
 // ThermalConfig holds thermal configuration for different satellite types
@@ -69,8 +69,8 @@ type ConstantsConfig struct {
 	SpeedOfLight    float64 `yaml:"speedOfLight"`
 }
 
-// SimulationConfig holds simulation settings
-type SimulationConfig struct {
+// PhysicalSimulationConfig holds simulation settings for physical plugins
+type PhysicalSimulationConfig struct {
 	TimeStep                   float64 `yaml:"timeStep"`
 	EnableCyberPhysicalFeedback bool   `yaml:"enableCyberPhysicalFeedback"`
 	ThermalWarningThreshold    float64 `yaml:"thermalWarningThreshold"`

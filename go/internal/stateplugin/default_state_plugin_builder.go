@@ -23,6 +23,8 @@ func (pb *DefaultStatePluginBuilder) BuildPlugins(pluginNames []string) ([]types
 		switch name {
 		case "DummySunStatePlugin":
 			plugins = append(plugins, NewDummySunStatePlugin())
+		case "ThermalEnvironmentStatePlugin":
+			plugins = append(plugins, NewThermalEnvironmentStatePlugin())
 		default:
 			return nil, fmt.Errorf("unknown plugin: %s", name)
 		}
