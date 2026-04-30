@@ -3,7 +3,7 @@ package ground
 import (
 	"log"
 
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 // GroundStationLoaderService is responsible for loading ground station configurations

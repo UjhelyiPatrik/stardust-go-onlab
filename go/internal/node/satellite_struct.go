@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 var _ types.Satellite = (*SatelliteStruct)(nil) // Ensure SatelliteStruct implements Satellite

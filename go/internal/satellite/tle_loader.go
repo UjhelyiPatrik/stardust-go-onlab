@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/keniack/stardustGo/configs"
-	"github.com/keniack/stardustGo/internal/links"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/configs"
+	"github.com/polaris-slo-cloud/stardust-go/internal/links"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 const (

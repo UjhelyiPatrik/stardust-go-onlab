@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 // DeploymentOrchestratorResolver resolves the correct IDeploymentOrchestrator based on the type.

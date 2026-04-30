@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sort"
 
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 // DijkstraRouter implements shortest-path routing using Dijkstra's algorithm

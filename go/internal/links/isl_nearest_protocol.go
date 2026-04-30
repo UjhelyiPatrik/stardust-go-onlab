@@ -5,9 +5,9 @@ import (
 	"sort"
 	"sync"
 
-	configmod "github.com/keniack/stardustGo/configs"
-	linkmod "github.com/keniack/stardustGo/internal/links/linktypes"
-	"github.com/keniack/stardustGo/pkg/types"
+	configmod "github.com/polaris-slo-cloud/stardust-go/configs"
+	linkmod "github.com/polaris-slo-cloud/stardust-go/internal/links/linktypes"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 var _ types.InterSatelliteLinkProtocol = (*IslNearestProtocol)(nil)

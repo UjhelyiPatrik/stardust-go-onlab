@@ -3,7 +3,7 @@ package simplugin
 import (
 	"log"
 
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 var _ types.SimulationPlugin = (*DummyPlugin)(nil)

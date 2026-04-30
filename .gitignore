@@ -1,3 +1,5 @@
 .idea/
 bin/
 *.exe
+go/results/precomputed/
+go/results/simulated/

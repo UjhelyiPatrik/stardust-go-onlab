@@ -6,16 +6,16 @@ import (
 	"log"
 	"strings"
 
-	"github.com/keniack/stardustGo/configs"
-	"github.com/keniack/stardustGo/internal/computing"
-	"github.com/keniack/stardustGo/internal/deployment"
-	"github.com/keniack/stardustGo/internal/ground"
-	"github.com/keniack/stardustGo/internal/routing"
-	"github.com/keniack/stardustGo/internal/satellite"
-	"github.com/keniack/stardustGo/internal/simplugin"
-	"github.com/keniack/stardustGo/internal/simulation"
-	"github.com/keniack/stardustGo/internal/stateplugin"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/configs"
+	"github.com/polaris-slo-cloud/stardust-go/internal/computing"
+	"github.com/polaris-slo-cloud/stardust-go/internal/deployment"
+	"github.com/polaris-slo-cloud/stardust-go/internal/ground"
+	"github.com/polaris-slo-cloud/stardust-go/internal/routing"
+	"github.com/polaris-slo-cloud/stardust-go/internal/satellite"
+	"github.com/polaris-slo-cloud/stardust-go/internal/simplugin"
+	"github.com/polaris-slo-cloud/stardust-go/internal/simulation"
+	"github.com/polaris-slo-cloud/stardust-go/internal/stateplugin"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 func main() {

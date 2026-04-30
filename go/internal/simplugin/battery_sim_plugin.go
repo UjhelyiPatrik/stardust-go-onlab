@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/keniack/stardustGo/configs"
-	"github.com/keniack/stardustGo/internal/computing"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/internal/computing"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 var _ types.SimulationPlugin = (*BatterySimPlugin)(nil)
@@ -138,20 +137,16 @@ func (p *BatterySimPlugin) calculatePowerConsumption(node types.Node, batteryPro
 	powerProps := p.getPowerProperties(node)
 
 	// Get computing resource usage
-	computing := node.GetComputing()
-	if computing == nil {
+	compNode := node.GetComputing()
+	if compNode == nil {
 		return powerProps.IdlePowerConsumption
 	}
-
-	// Calculate power based on CPU usage (using available() methods)
-	cpuAvailable := computing.CpuAvailable()
-	memAvailable := computing.MemoryAvailable()
 
 	// Estimate usage as difference from total (simplified model)
 	// In a full implementation, we'd track actual usage
 	cpuUsage := 0.0
 	memoryUsage := 0.0
-	if comp, ok := computing.(*computing.Computing); ok {
+	if comp, ok := compNode.(*computing.Computing); ok {
 		cpuUsage = comp.CpuUsage
 		memoryUsage = comp.MemoryUsage
 	}
@@ -162,9 +157,6 @@ func (p *BatterySimPlugin) calculatePowerConsumption(node types.Node, batteryPro
 	memoryPower := memoryUsage * 0.1 // 0.1W per unit of memory
 
 	totalPower := basePower + cpuPower + memoryPower
-
-	_ = cpuAvailable
-	_ = memAvailable
 
 	return totalPower
 }

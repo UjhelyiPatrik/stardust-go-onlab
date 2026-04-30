@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 
-	"github.com/keniack/stardustGo/configs"
+	"github.com/polaris-slo-cloud/stardust-go/configs"
 )
 
 // RouterBuilder constructs routers based on configuration.

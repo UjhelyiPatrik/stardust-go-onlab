@@ -3,7 +3,7 @@ package links
 import (
 	"sync"
 
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 var _ types.InterSatelliteLinkProtocol = (*PrecomputedLinkProtocol)(nil)

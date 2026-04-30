@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 // Computing represents the computing resources of a node.

@@ -8,12 +8,13 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/keniack/stardustGo/pkg/helper"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/helper"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 var _ types.StatePlugin = (*ThermalEnvironmentStatePlugin)(nil)
 var _ ThermalEnvironmentPlugin = (*ThermalEnvironmentStatePlugin)(nil)
+var _ SunStatePlugin = (*ThermalEnvironmentStatePlugin)(nil)
 
 // ThermalEnvironmentPlugin defines the interface for thermal environment plugins
 type ThermalEnvironmentPlugin interface {
@@ -329,4 +330,12 @@ func (p *ThermalEnvironmentStatePlugin) Save(origFile string) {
 
 	encoder := gob.NewEncoder(file)
 	encoder.Encode(p.states)
+}
+
+// GetSunlightExposure returns the current sunlight exposure for a satellite (0.0 to 1.0)
+func (p *ThermalEnvironmentStatePlugin) GetSunlightExposure(node types.Node) float64 {
+	if heat, ok := p.environmentalHeat[node]; ok {
+		return heat.SunlightExposure
+	}
+	return 0.0 // Default if not calculated yet
 }

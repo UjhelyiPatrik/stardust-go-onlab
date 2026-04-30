@@ -3,8 +3,8 @@ package satellite
 import (
 	"log"
 
-	"github.com/keniack/stardustGo/configs"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/configs"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 // SatelliteLoaderService wires the constellation loader and triggers simulation startup.

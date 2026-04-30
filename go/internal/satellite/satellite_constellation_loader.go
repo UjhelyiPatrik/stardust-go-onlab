@@ -11,8 +11,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/keniack/stardustGo/internal/links/linktypes"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/internal/links/linktypes"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 // SatelliteConstellationLoader manages data source loaders (e.g., TLE) and loads satellite data.

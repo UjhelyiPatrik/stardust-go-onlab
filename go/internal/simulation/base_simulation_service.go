@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/keniack/stardustGo/configs"
-	"github.com/keniack/stardustGo/internal/deployment"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/configs"
+	"github.com/polaris-slo-cloud/stardust-go/internal/deployment"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 type BaseSimulationService struct {

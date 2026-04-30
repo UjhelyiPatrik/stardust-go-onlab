@@ -4,9 +4,9 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/keniack/stardustGo/configs"
-	"github.com/keniack/stardustGo/pkg/helper"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/configs"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/helper"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 var _ types.InterSatelliteLinkProtocol = (*IslAddSmartLoopProtocol)(nil)

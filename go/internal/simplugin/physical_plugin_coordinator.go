@@ -1,9 +1,9 @@
 package simplugin
 
 import (
-	"github.com/keniack/stardustGo/configs"
-	"github.com/keniack/stardustGo/internal/stateplugin"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/configs"
+	"github.com/polaris-slo-cloud/stardust-go/internal/stateplugin"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 // =============================================================================

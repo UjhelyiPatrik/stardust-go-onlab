@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/keniack/stardustGo/internal/computing"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/internal/computing"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 var _ types.SimulationPlugin = (*ThermalSimPlugin)(nil)
@@ -40,10 +40,10 @@ type BatterySimPluginInterface interface {
 // NewThermalSimPlugin creates a new thermal simulation plugin
 func NewThermalSimPlugin() *ThermalSimPlugin {
 	return &ThermalSimPlugin{
-		thermalStates:     make(map[string]*types.SatellitePhysicalState),
-		thermalProps:      make(map[string]types.ThermalProperties),
-		timeStep:          1.0, // Default 1 second time step
-		enableFeedback:   true, // Enable cyber-physical feedback by default
+		thermalStates:  make(map[string]*types.SatellitePhysicalState),
+		thermalProps:   make(map[string]types.ThermalProperties),
+		timeStep:       1.0,  // Default 1 second time step
+		enableFeedback: true, // Enable cyber-physical feedback by default
 	}
 }
 
@@ -151,12 +151,12 @@ func (p *ThermalSimPlugin) calculateInternalHeatGeneration(node types.Node) floa
 	// In space, all electrical power eventually becomes heat
 	if p.batteryPlugin == nil {
 		// Fallback: estimate from computing resources
-		computing := node.GetComputing()
-		if computing == nil {
+		compNode := node.GetComputing()
+		if compNode == nil {
 			return 0
 		}
 		// Use type assertion to access the concrete Computing struct
-		if comp, ok := computing.(*computing.Computing); ok {
+		if comp, ok := compNode.(*computing.Computing); ok {
 			return comp.CpuUsage * 10.0 // Simplified estimate
 		}
 		return 0
@@ -274,7 +274,6 @@ func (p *ThermalSimPlugin) GetEffectiveCapacity(node types.Node) float64 {
 	// Temperature effect on battery capacity
 	// Cold temperatures reduce effective capacity
 	temp := state.Temperature
-	optimalTemp := 293.15 // 20°C
 
 	// Simple model: capacity drops below 10°C and above 40°C
 	efficiency := 1.0

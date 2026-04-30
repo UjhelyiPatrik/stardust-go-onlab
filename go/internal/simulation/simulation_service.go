@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/keniack/stardustGo/configs"
-	"github.com/keniack/stardustGo/internal/computing"
-	"github.com/keniack/stardustGo/internal/routing"
-	"github.com/keniack/stardustGo/pkg/types"
+	"github.com/polaris-slo-cloud/stardust-go/configs"
+	"github.com/polaris-slo-cloud/stardust-go/internal/computing"
+	"github.com/polaris-slo-cloud/stardust-go/internal/routing"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 var _ types.SimulationController = (*SimulationService)(nil)

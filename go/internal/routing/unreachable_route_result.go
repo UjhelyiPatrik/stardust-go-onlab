@@ -1,6 +1,6 @@
 package routing
 
-import "github.com/keniack/stardustGo/pkg/types"
+import "github.com/polaris-slo-cloud/stardust-go/pkg/types"
 
 type UnreachableRouteResult struct{}
 
