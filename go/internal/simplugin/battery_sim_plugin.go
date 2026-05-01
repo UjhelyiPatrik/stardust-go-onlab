@@ -24,7 +24,7 @@ type BatterySimPlugin struct {
 	// Reference to thermal environment plugin
 	thermalPlugin ThermalEnvironmentPlugin
 
-	// Time step in seconds
+	// Time step in seconds (used as a fallback or sub-stepping constraint)
 	timeStep float64
 }
 
@@ -74,21 +74,43 @@ func (p *BatterySimPlugin) PostSimulationStep(simulation types.SimulationControl
 	simTime := simulation.GetSimulationTime()
 
 	for _, node := range nodes {
-		p.updateBatteryState(node, simTime)
+		p.updateBatteryState(node, simTime, simulation)
 	}
 
 	return nil
 }
 
 // updateBatteryState updates the battery state for a single satellite
-func (p *BatterySimPlugin) updateBatteryState(node types.Node, simTime time.Time) {
+func (p *BatterySimPlugin) updateBatteryState(node types.Node, simTime time.Time, simulation types.SimulationController) {
 	nodeName := node.GetName()
 
 	// Get or create battery state
 	state, ok := p.batteryStates[nodeName]
 	if !ok {
 		state = types.NewSatellitePhysicalState(nodeName)
+		state.Timestamp = simTime
+		state.SOC = 1.0 // Start fully charged
 		p.batteryStates[nodeName] = state
+		return // Return early on first iteration - no delta time yet
+	}
+
+	// Calculate dynamic delta time (seconds elapsed since last update)
+	deltaT := simTime.Sub(state.Timestamp).Seconds()
+	if deltaT <= 0 {
+		return // No time advancement
+	}
+
+	// Resolve Thermal Environment Plugin from repository at runtime (Dependency Injection)
+	if p.thermalPlugin == nil {
+		repo := simulation.GetStatePluginRepository()
+		if repo != nil {
+			for _, sp := range repo.GetAllPlugins() {
+				if envPlugin, ok := sp.(ThermalEnvironmentPlugin); ok {
+					p.thermalPlugin = envPlugin
+					break
+				}
+			}
+		}
 	}
 
 	// Get properties
@@ -105,20 +127,20 @@ func (p *BatterySimPlugin) updateBatteryState(node types.Node, simTime time.Time
 	netPower := powerGeneration - powerConsumption
 	netCurrent := netPower / batteryProps.NominalVoltage
 
-	// Update state
+	// Update state properties
 	state.PowerConsumption = powerConsumption
 	state.PowerGeneration = powerGeneration
 	state.NetCurrent = netCurrent
 	state.Timestamp = simTime
 
-	// Update SOC using Coulomb Counting
+	// Update SOC using Coulomb Counting with dynamic deltaT
 	// SOC(t+1) = SOC(t) + (η * I * Δt) / (3600 * C_total)
 	capacityAh := batteryProps.Capacity
 	capacityAs := capacityAh * 3600 // Convert to Ampere-seconds
 	efficiency := batteryProps.CoulombEfficiency
 
-	// Apply Coulomb efficiency
-	deltaSOC := (efficiency * netCurrent * p.timeStep) / capacityAs
+	// Apply Coulomb efficiency using the ACTUAL elapsed time (deltaT)
+	deltaSOC := (efficiency * netCurrent * deltaT) / capacityAs
 	newSOC := state.SOC + deltaSOC
 
 	// Clamp SOC to valid range
@@ -133,17 +155,12 @@ func (p *BatterySimPlugin) updateBatteryState(node types.Node, simTime time.Time
 
 // calculatePowerConsumption calculates the power consumption of a satellite
 func (p *BatterySimPlugin) calculatePowerConsumption(node types.Node, batteryProps types.BatteryProperties) float64 {
-	// Get power properties for idle consumption
 	powerProps := p.getPowerProperties(node)
-
-	// Get computing resource usage
 	compNode := node.GetComputing()
 	if compNode == nil {
 		return powerProps.IdlePowerConsumption
 	}
 
-	// Estimate usage as difference from total (simplified model)
-	// In a full implementation, we'd track actual usage
 	cpuUsage := 0.0
 	memoryUsage := 0.0
 	if comp, ok := compNode.(*computing.Computing); ok {
@@ -151,32 +168,24 @@ func (p *BatterySimPlugin) calculatePowerConsumption(node types.Node, batteryPro
 		memoryUsage = comp.MemoryUsage
 	}
 
-	// Power model: base + CPU scaling + memory scaling
 	basePower := powerProps.IdlePowerConsumption
-	cpuPower := cpuUsage * 10.0  // 10W per unit of CPU usage
+	cpuPower := cpuUsage * 10.0      // 10W per unit of CPU usage
 	memoryPower := memoryUsage * 0.1 // 0.1W per unit of memory
 
-	totalPower := basePower + cpuPower + memoryPower
-
-	return totalPower
+	return basePower + cpuPower + memoryPower
 }
 
 // calculatePowerGeneration calculates the solar power generation
 func (p *BatterySimPlugin) calculatePowerGeneration(node types.Node, powerProps types.PowerProperties) float64 {
-	// Get environmental heat from thermal plugin
 	if p.thermalPlugin == nil {
 		return 0
 	}
 
 	envHeat := p.thermalPlugin.GetEnvironmentalHeat(node)
-
-	// If in eclipse, no power generation
 	if envHeat.InEclipse {
 		return 0
 	}
 
-	// Power generation based on sunlight exposure
-	// P = P_max * exposure * efficiency
 	exposure := envHeat.SunlightExposure
 	if exposure > 1.0 {
 		exposure = 1.0
@@ -188,7 +197,6 @@ func (p *BatterySimPlugin) calculatePowerGeneration(node types.Node, powerProps 
 	return powerProps.MaxPowerGeneration * exposure * powerProps.SolarEfficiency
 }
 
-// getBatteryProperties returns battery properties for a node
 func (p *BatterySimPlugin) getBatteryProperties(node types.Node) types.BatteryProperties {
 	if props, ok := p.batteryProps[node.GetName()]; ok {
 		return props
@@ -199,7 +207,6 @@ func (p *BatterySimPlugin) getBatteryProperties(node types.Node) types.BatteryPr
 	return types.DefaultBatteryProperties()
 }
 
-// getPowerProperties returns power properties for a node
 func (p *BatterySimPlugin) getPowerProperties(node types.Node) types.PowerProperties {
 	if props, ok := p.powerProps[node.GetName()]; ok {
 		return props
@@ -210,7 +217,6 @@ func (p *BatterySimPlugin) getPowerProperties(node types.Node) types.PowerProper
 	return types.DefaultPowerProperties()
 }
 
-// GetBatteryState returns the battery state for a node
 func (p *BatterySimPlugin) GetBatteryState(node types.Node) (*types.SatellitePhysicalState, error) {
 	state, ok := p.batteryStates[node.GetName()]
 	if !ok {
@@ -219,7 +225,6 @@ func (p *BatterySimPlugin) GetBatteryState(node types.Node) (*types.SatellitePhy
 	return state, nil
 }
 
-// GetSOC returns the current SOC for a node
 func (p *BatterySimPlugin) GetSOC(node types.Node) (float64, error) {
 	state, err := p.GetBatteryState(node)
 	if err != nil {
@@ -228,7 +233,6 @@ func (p *BatterySimPlugin) GetSOC(node types.Node) (float64, error) {
 	return state.SOC, nil
 }
 
-// IsCritical returns true if the battery is at critical level
 func (p *BatterySimPlugin) IsCritical(node types.Node) bool {
 	state, err := p.GetBatteryState(node)
 	if err != nil {
@@ -238,12 +242,10 @@ func (p *BatterySimPlugin) IsCritical(node types.Node) bool {
 	return state.SOC < batteryProps.CriticalSOC
 }
 
-// GetAllStates returns all battery states
 func (p *BatterySimPlugin) GetAllStates() map[string]*types.SatellitePhysicalState {
 	return p.batteryStates
 }
 
-// Reset resets all battery states
 func (p *BatterySimPlugin) Reset() {
 	p.batteryStates = make(map[string]*types.SatellitePhysicalState)
 }

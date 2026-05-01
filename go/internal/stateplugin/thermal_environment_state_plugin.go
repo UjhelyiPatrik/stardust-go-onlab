@@ -60,7 +60,7 @@ func NewThermalEnvironmentStatePlugin() *ThermalEnvironmentStatePlugin {
 		thermalProps:      make(map[string]types.ThermalProperties),
 		powerProps:        make(map[string]types.PowerProperties),
 		sunVector:         types.Vector{X: 1, Y: 0, Z: 0}, // Default sun direction
-		earthRadius:       6371000.0,                     // Earth radius in meters
+		earthRadius:       6371000.0,                      // Earth radius in meters
 		refTime:           time.Now(),
 	}
 }
@@ -111,15 +111,16 @@ func (p *ThermalEnvironmentStatePlugin) PostSimulationStep(simulationController 
 
 // updateSunVector updates the sun direction vector based on time
 func (p *ThermalEnvironmentStatePlugin) updateSunVector(simTime time.Time) {
-	// Simplified: sun vector rotates slowly through the year
-	// In a full implementation, this would use ephemeris data
 	days := simTime.Sub(p.refTime).Hours() / 24.0
-	angle := days * 2 * math.Pi / 365.25 // Annual variation
+	angle := days * 2 * math.Pi / 365.25
+
+	// Tengelyferdeség (obliquity of the ecliptic) ~ 23.44 fok
+	epsilon := 23.44 * math.Pi / 180.0
 
 	p.sunVector = types.Vector{
 		X: math.Cos(angle),
-		Y: 0,
-		Z: math.Sin(angle),
+		Y: math.Sin(angle) * math.Cos(epsilon),
+		Z: math.Sin(angle) * math.Sin(epsilon),
 	}
 }
 
@@ -161,7 +162,7 @@ func (p *ThermalEnvironmentStatePlugin) calculateEnvironmentalHeat(node types.No
 
 	// Store environmental heat
 	p.environmentalHeat[node] = types.EnvironmentalHeat{
-		SolarHeat:         solarHeat,
+		SolarHeat:        solarHeat,
 		AlbedoHeat:       albedoHeat,
 		IRHeat:           irHeat,
 		TotalHeat:        totalHeat,
@@ -174,10 +175,10 @@ func (p *ThermalEnvironmentStatePlugin) calculateEnvironmentalHeat(node types.No
 // calculateOrbitalPosition determines the orbital position and eclipse state
 func (p *ThermalEnvironmentStatePlugin) calculateOrbitalPosition(node types.Node, position types.Vector) types.OrbitalPosition {
 	pos := types.OrbitalPosition{
-		Position:    position,
-		TrueAnomaly: 0,
-		BetaAngle:   0,
-		InEclipse:   false,
+		Position:     position,
+		TrueAnomaly:  0,
+		BetaAngle:    0,
+		InEclipse:    false,
 		EclipseDepth: 0,
 	}
 
@@ -252,22 +253,22 @@ func (p *ThermalEnvironmentStatePlugin) calculateSolarHeat(position types.Vector
 
 // calculateAlbedoHeat calculates Earth albedo heat input
 func (p *ThermalEnvironmentStatePlugin) calculateAlbedoHeat(position types.Vector, thermalProps types.ThermalProperties) float64 {
-	// Simplified view factor calculation
-	// In reality, this would require geometric calculations
-
-	// Distance from Earth center
 	dist := math.Sqrt(position.X*position.X + position.Y*position.Y + position.Z*position.Z)
 
-	// View factor to Earth (simplified)
-	// F = (R_e / r)^2 for a flat plate looking at a sphere
-	viewFactor := math.Pow(p.earthRadius/dist, 2)
+	// Föld-Nap megvilágítási szög (dot product)
+	dotProduct := (position.X*p.sunVector.X + position.Y*p.sunVector.Y + position.Z*p.sunVector.Z) / dist
 
-	// Albedo heat = α * S * a * A * F
-	// Where a is albedo factor (0.3 typical)
+	// Ha a műhold a sötét oldalon van, nincs albedó
+	if dotProduct <= 0 {
+		return 0.0
+	}
+
+	viewFactor := math.Pow(p.earthRadius/dist, 2)
 	albedoFactor := types.EarthAlbedoFactor
 	solarConstant := types.SolarConstant
 
-	return thermalProps.Absorptivity * solarConstant * albedoFactor * thermalProps.SurfaceArea * viewFactor
+	// Az albedó intenzitása függ a beesési szögtől is (Lambert-féle koszinusz törvény)
+	return thermalProps.Absorptivity * solarConstant * albedoFactor * thermalProps.SurfaceArea * viewFactor * dotProduct
 }
 
 // calculateIRHeat calculates Earth infrared heat input

@@ -2,7 +2,6 @@ package simplugin
 
 import (
 	"github.com/polaris-slo-cloud/stardust-go/configs"
-	"github.com/polaris-slo-cloud/stardust-go/internal/stateplugin"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
@@ -12,9 +11,6 @@ import (
 
 // PhysicalPluginCoordinator coordinates all physical simulation plugins
 type PhysicalPluginCoordinator struct {
-	// State plugins
-	thermalEnvPlugin *stateplugin.ThermalEnvironmentStatePlugin
-
 	// Simulation plugins
 	batteryPlugin *BatterySimPlugin
 	thermalPlugin *ThermalSimPlugin
@@ -29,7 +25,7 @@ func NewPhysicalPluginCoordinator(config *configs.PhysicalConfig) *PhysicalPlugi
 		config: config,
 	}
 
-	// Initialize plugins
+	// Initialize simulation plugins
 	coordinator.initPlugins()
 
 	return coordinator
@@ -37,17 +33,13 @@ func NewPhysicalPluginCoordinator(config *configs.PhysicalConfig) *PhysicalPlugi
 
 // initPlugins initializes all physical plugins
 func (c *PhysicalPluginCoordinator) initPlugins() {
-	// Create thermal environment state plugin
-	c.thermalEnvPlugin = stateplugin.NewThermalEnvironmentStatePlugin()
-
-	// Create battery simulation plugin
+	// Create simulation plugins
 	c.batteryPlugin = NewBatterySimPlugin()
-
-	// Create thermal simulation plugin
 	c.thermalPlugin = NewThermalSimPlugin()
 
-	// Set up plugin connections (cyber-physical feedback)
-	c.thermalPlugin.SetThermalEnvironmentPlugin(c.thermalEnvPlugin)
+	// Connect Battery directly to Thermal for cyber-physical feedback.
+	// (Note: ThermalEnvironmentStatePlugin is now dynamically resolved via Dependency Injection
+	// in the PostSimulationStep of each plugin to ensure state sync)
 	c.thermalPlugin.SetBatteryPlugin(c.batteryPlugin)
 
 	// Configure properties for each satellite type
@@ -70,21 +62,20 @@ func (c *PhysicalPluginCoordinator) configureProperties() {
 			MaxTemperature: props.MaxTemperature,
 			MinTemperature: props.MinTemperature,
 		}
-		c.thermalEnvPlugin.SetThermalProperties(satType, thermalProps)
 		c.thermalPlugin.SetThermalProperties(satType, thermalProps)
 	}
 
 	// Configure battery plugin
 	for satType, props := range c.config.Battery {
 		c.batteryPlugin.SetBatteryProperties(satType, types.BatteryProperties{
-			Capacity:            props.Capacity,
-			NominalVoltage:      props.NominalVoltage,
-			CoulombEfficiency:   props.CoulombEfficiency,
-			MaxDoD:              props.MaxDoD,
-			CriticalSOC:         props.CriticalSOC,
+			Capacity:           props.Capacity,
+			NominalVoltage:     props.NominalVoltage,
+			CoulombEfficiency:  props.CoulombEfficiency,
+			MaxDoD:             props.MaxDoD,
+			CriticalSOC:        props.CriticalSOC,
 			InternalResistance: props.InternalResistance,
-			MaxVoltage:          props.MaxVoltage,
-			MinVoltage:          props.MinVoltage,
+			MaxVoltage:         props.MaxVoltage,
+			MinVoltage:         props.MinVoltage,
 		})
 	}
 
@@ -109,11 +100,6 @@ func (c *PhysicalPluginCoordinator) configureProperties() {
 	c.thermalPlugin.SetEnableFeedback(c.config.Simulation.EnableCyberPhysicalFeedback)
 }
 
-// GetThermalEnvironmentPlugin returns the thermal environment state plugin
-func (c *PhysicalPluginCoordinator) GetThermalEnvironmentPlugin() *stateplugin.ThermalEnvironmentStatePlugin {
-	return c.thermalEnvPlugin
-}
-
 // GetBatteryPlugin returns the battery simulation plugin
 func (c *PhysicalPluginCoordinator) GetBatteryPlugin() *BatterySimPlugin {
 	return c.batteryPlugin
@@ -125,8 +111,9 @@ func (c *PhysicalPluginCoordinator) GetThermalPlugin() *ThermalSimPlugin {
 }
 
 // GetStatePlugins returns all state plugins for registration
+// Now returns an empty slice to avoid duplicating the State Plugin explicitly loaded via CLI arguments
 func (c *PhysicalPluginCoordinator) GetStatePlugins() []types.StatePlugin {
-	return []types.StatePlugin{c.thermalEnvPlugin}
+	return []types.StatePlugin{}
 }
 
 // GetSimulationPlugins returns all simulation plugins for registration
@@ -161,11 +148,6 @@ func (c *PhysicalPluginCoordinator) IsBatteryCritical(node types.Node) bool {
 // IsOverheating returns true if the satellite is overheating
 func (c *PhysicalPluginCoordinator) IsOverheating(node types.Node) bool {
 	return c.thermalPlugin.IsOverheating(node)
-}
-
-// GetEnvironmentalHeat returns the environmental heat for a satellite
-func (c *PhysicalPluginCoordinator) GetEnvironmentalHeat(node types.Node) types.EnvironmentalHeat {
-	return c.thermalEnvPlugin.GetEnvironmentalHeat(node)
 }
 
 // GetEffectiveCapacity returns the temperature-adjusted battery capacity
