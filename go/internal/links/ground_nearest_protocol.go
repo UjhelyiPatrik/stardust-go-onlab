@@ -2,7 +2,7 @@ package links
 
 import (
 	"errors"
-	"slices"
+	"math"
 	"sync"
 
 	"github.com/polaris-slo-cloud/stardust-go/internal/links/linktypes"
@@ -12,7 +12,7 @@ import (
 var _ types.GroundSatelliteLinkProtocol = (*GroundSatelliteNearestProtocol)(nil)
 
 // GroundSatelliteNearestProtocol maintains a single active link from the ground station
-// to the nearest satellite at any given time.
+// to the nearest VISIBLE satellite at any given time.
 type GroundSatelliteNearestProtocol struct {
 	link          *linktypes.GroundLink // Current active ground link
 	satellites    []types.Satellite     // Available satellites
@@ -49,7 +49,7 @@ func (p *GroundSatelliteNearestProtocol) DisconnectLink(link types.Link) error {
 	return nil
 }
 
-// UpdateLink selects the closest satellite and sets up the ground link accordingly.
+// UpdateLinks selects the closest satellite that is ABOVE the horizon and sets up the ground link.
 func (p *GroundSatelliteNearestProtocol) UpdateLinks() ([]types.Link, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -57,30 +57,52 @@ func (p *GroundSatelliteNearestProtocol) UpdateLinks() ([]types.Link, error) {
 	if p.groundStation == nil {
 		return nil, errors.New("protocol not mounted to ground station")
 	}
+
 	if len(p.satellites) == 0 {
 		return nil, errors.New("no satellites available")
 	}
 
-	slices.SortFunc(p.satellites, func(a types.Satellite, b types.Satellite) int {
-		var nodea types.Node = a
-		var nodeb types.Node = b
-		return int(p.groundStation.DistanceTo(nodea) - p.groundStation.DistanceTo(nodeb))
-	})
+	var nearest types.Satellite
+	minDist := math.MaxFloat64
 
-	var nearest = p.satellites[0]
-	if nearest == nil || (p.link != nil && p.link.Satellite.GetName() == nearest.GetName()) {
-		return []types.Link{p.link}, nil // Already linked to the nearest
+	// Iterate through all satellites to find the closest one that is actually visible
+	for _, sat := range p.satellites {
+		// Create a temporary link purely to evaluate reachability (Line of Sight)
+		tempLink := linktypes.NewGroundLink(p.groundStation, sat)
+
+		if !tempLink.IsReachable() {
+			continue // Satellite is obstructed by the Earth (below horizon)
+		}
+
+		dist := p.groundStation.DistanceTo(sat)
+		if dist < minDist {
+			minDist = dist
+			nearest = sat
+		}
 	}
 
-	old := p.link
-	p.link = linktypes.NewGroundLink(p.groundStation, nearest)
+	// If no satellites are currently visible in the sky (e.g., sparse constellation)
+	if nearest == nil {
+		if p.link != nil {
+			// Disconnect the existing link because the satellite disappeared below the horizon
+			p.link.Satellite.GetLinkNodeProtocol().DisconnectLink(p.link)
+			p.link = nil
+		}
+		return nil, errors.New("no visible satellites above the horizon")
+	}
 
-	// Add new link to satellite if it supports ground links
-	nearest.GetLinkNodeProtocol().ConnectLink(p.link)
+	// If we found a valid nearest satellite and it requires a link update
+	if p.link == nil || p.link.Satellite.GetName() != nearest.GetName() {
+		old := p.link
+		p.link = linktypes.NewGroundLink(p.groundStation, nearest)
 
-	// Remove old link from previous satellite if supported
-	if old != nil {
-		old.Satellite.GetLinkNodeProtocol().DisconnectLink(old)
+		// Connect new link to the satellite's ISL protocol module
+		nearest.GetLinkNodeProtocol().ConnectLink(p.link)
+
+		// Clean up the connection to the previous satellite
+		if old != nil {
+			old.Satellite.GetLinkNodeProtocol().DisconnectLink(old)
+		}
 	}
 
 	return []types.Link{p.link}, nil
@@ -121,7 +143,6 @@ func (p *GroundSatelliteNearestProtocol) RemoveSatellite(toRemove types.Node) {
 	defer p.mu.Unlock()
 
 	if satellite, ok := toRemove.(types.Satellite); ok {
-
 		// Filter out the satellite
 		filtered := make([]types.Satellite, 0, len(p.satellites))
 		for _, s := range p.satellites {
@@ -131,7 +152,7 @@ func (p *GroundSatelliteNearestProtocol) RemoveSatellite(toRemove types.Node) {
 		}
 		p.satellites = filtered
 
-		// Remove the link if it's pointing to the removed satellite
+		// Remove the link if it was pointing to the removed satellite
 		if p.link != nil && p.link.Satellite.GetName() == satellite.GetName() {
 			satellite.GetLinkNodeProtocol().DisconnectLink(p.link)
 			p.link = nil

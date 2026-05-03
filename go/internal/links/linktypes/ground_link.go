@@ -34,6 +34,7 @@ func (gl *GroundLink) Bandwidth() float64 {
 	return 500_000_000 // 500 Mbps
 }
 
+// GetOther returns the opposite node of the link.
 func (gl *GroundLink) GetOther(self types.Node) types.Node {
 	if self.GetName() == gl.Satellite.GetName() {
 		return gl.GroundStation
@@ -41,15 +42,29 @@ func (gl *GroundLink) GetOther(self types.Node) types.Node {
 	if self.GetName() == gl.GroundStation.GetName() {
 		return gl.Satellite
 	}
-	// Return nil or panic, depending on how you want to fail
 	return nil
 }
 
-// IsReachable returns true – placeholder for future visibility checks.
+// IsReachable checks if the satellite is above the horizon from the ground station's perspective.
+// It uses the Dot Product between the Ground Station's normal vector (Zenith) and the direction vector to the satellite.
 func (gl *GroundLink) IsReachable() bool {
-	return true
+	gsPos := gl.GroundStation.GetPosition()
+	satPos := gl.Satellite.GetPosition()
+
+	// Direction vector pointing from the Ground Station to the Satellite
+	dirX := satPos.X - gsPos.X
+	dirY := satPos.Y - gsPos.Y
+	dirZ := satPos.Z - gsPos.Z
+
+	// The position vector of the ground station (from Earth's center) acts as the Zenith (Up) normal vector.
+	// We calculate the dot product of the Zenith vector and the Direction vector.
+	dotProduct := (gsPos.X * dirX) + (gsPos.Y * dirY) + (gsPos.Z * dirZ)
+
+	// If the dot product is positive, the angle is < 90 degrees, meaning the satellite is above the mathematical horizon.
+	return dotProduct > 0
 }
 
+// Nodes returns both nodes participating in the link.
 func (gl *GroundLink) Nodes() (types.Node, types.Node) {
 	return gl.GroundStation, gl.Satellite
 }

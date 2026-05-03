@@ -77,6 +77,70 @@ func (p *BatterySimPlugin) PostSimulationStep(simulation types.SimulationControl
 		p.updateBatteryState(node, simTime, simulation)
 	}
 
+	// === Calculating Power & Battery Statistics ===
+	if len(p.batteryStates) > 0 {
+		var minSOC, maxSOC float64
+		var maxGeneration, maxConsumption float64
+		var minSOCNode, maxSOCNode string
+		var maxGenNode, maxConsNode string
+
+		sumSOC := 0.0
+		sumConsumption := 0.0
+		first := true
+
+		for name, state := range p.batteryStates {
+			// Setting initial values for min/max on the first iteration
+			if first {
+				minSOC = state.SOC
+				maxSOC = state.SOC
+				maxGeneration = state.PowerGeneration
+				maxConsumption = state.PowerConsumption
+
+				minSOCNode = name
+				maxSOCNode = name
+				maxGenNode = name
+				maxConsNode = name
+				first = false
+			} else {
+				// finding minimum and maximum SOC
+				if state.SOC < minSOC {
+					minSOC = state.SOC
+					minSOCNode = name
+				}
+				if state.SOC > maxSOC {
+					maxSOC = state.SOC
+					maxSOCNode = name
+				}
+				// Finding maximum charging (Generated energy)
+				if state.PowerGeneration > maxGeneration {
+					maxGeneration = state.PowerGeneration
+					maxGenNode = name
+				}
+				// Finding maximum consumption
+				if state.PowerConsumption > maxConsumption {
+					maxConsumption = state.PowerConsumption
+					maxConsNode = name
+				}
+			}
+			sumSOC += state.SOC
+			sumConsumption += state.PowerConsumption
+		}
+
+		// Calculating averages
+		avgSOC := sumSOC / float64(len(p.batteryStates))
+		avgConsumption := sumConsumption / float64(len(p.batteryStates))
+
+		// Printing to console (SOC is a value between 0 and 1, so we multiply by 100 to get a percentage)
+		fmt.Printf("\n=== Power & Battery Statistics (Simulation Time: %v) ===\n", simTime)
+		fmt.Printf("Maximum SOC: %.2f%% (%s)\n", maxSOC*100, maxSOCNode)
+		fmt.Printf("Minimum SOC: %.2f%% (%s)\n", minSOC*100, minSOCNode)
+		fmt.Printf("Average SOC: %.2f%%\n", avgSOC*100)
+		fmt.Printf("Max Power Generation: %.2f W (%s)\n", maxGeneration, maxGenNode)
+		fmt.Printf("Max Power Consumption: %.2f W (%s)\n", maxConsumption, maxConsNode)
+		fmt.Printf("Average Power Consumption: %.2f W\n", avgConsumption)
+		fmt.Println("==========================================================\n")
+	}
+
 	return nil
 }
 

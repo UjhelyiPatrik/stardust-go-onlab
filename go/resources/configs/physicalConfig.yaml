@@ -32,12 +32,12 @@ thermal:
   
   # Default fallback
   default:
-    thermalMass: 3500.0
-    surfaceArea: 0.14
-    absorptivity: 0.92
-    emissivity: 0.85
-    maxTemperature: 333.15
-    minTemperature: 253.15
+    thermalMass: 50000.0        # J/K
+    surfaceArea: 2.0            # m²
+    absorptivity: 0.85
+    emissivity: 0.90
+    maxTemperature: 323.15      # K (50°C)
+    minTemperature: 243.15      # K (-30°C)
 
 # Battery properties for different satellite types
 battery:
@@ -72,14 +72,14 @@ battery:
     minVoltage: 21.0            # V
   
   default:
-    capacity: 10.0
-    nominalVoltage: 7.4
-    coulombEfficiency: 0.95
-    maxDoD: 0.8
-    criticalSOC: 0.2
-    internalResistance: 0.1
-    maxVoltage: 8.4
-    minVoltage: 6.0
+    capacity: 100.0             # Ah
+    nominalVoltage: 28.0        # V
+    coulombEfficiency: 0.97
+    maxDoD: 0.7                 
+    criticalSOC: 0.15           
+    internalResistance: 0.02    
+    maxVoltage: 33.6            
+    minVoltage: 21.0
 
 # Power generation properties for different satellite types
 power:
@@ -102,10 +102,10 @@ power:
     idlePowerConsumption: 50.0   # W
   
   default:
-    solarEfficiency: 0.28
-    solarPanelArea: 0.08
-    maxPowerGeneration: 40.0
-    idlePowerConsumption: 2.0
+    solarEfficiency: 0.32
+    solarPanelArea: 10.0        # m²
+    maxPowerGeneration: 5000.0  # W
+    idlePowerConsumption: 50.0   # W
 
 # Physical constants (usually not changed)
 constants:

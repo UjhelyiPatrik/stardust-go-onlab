@@ -203,34 +203,87 @@ func myCode(simulationController types.SimulationController, simulationConfig co
 		<-done // blocks main goroutine until simulation stops
 	} else {
 		log.Println("Simulation loaded. Not autorunning as StepInterval < 0.")
+
+		// Read the simulatin step time
+		stepSeconds := float64(simulationConfig.StepMultiplier)
+
 		for range simulationConfig.StepCount {
-			simulationController.StepBySeconds(60 * 10) // Example: step by 60 seconds
-			var sats = simulationController.GetGroundStations()
-			var ground1 = sats[0]
-			var ground2 = sats[80]
-			var l1 = ground1.GetLinkNodeProtocol().Established()[0]
-			var l2 = ground2.GetLinkNodeProtocol().Established()[0]
+			// Advance simulation time by 10 minutes for demonstration
+			simulationController.StepBySeconds(stepSeconds)
+
+			var grounds = simulationController.GetGroundStations()
+			var sats = simulationController.GetSatellites()
+
+			// Safety check to ensure we have enough ground stations for the test scenario
+			if len(grounds) <= 80 {
+				log.Println("Error: Not enough ground stations for this test.")
+				return
+			}
+
+			var ground1 = grounds[0]
+			var ground2 = grounds[80]
+
+			// --- Network (Defensive Programming) ---
+			g1Links := ground1.GetLinkNodeProtocol().Established()
+			g2Links := ground2.GetLinkNodeProtocol().Established()
+
+			log.Printf("\n=======================================================")
+			log.Printf(" SIMULATION STEP (Advanced by %.0f minutes)", stepSeconds/60)
+			log.Printf(" Current Simulation Time: %v", simulationController.GetSimulationTime())
+			log.Printf(" Network state: %d Satellites | %d Ground Stations", len(sats), len(grounds))
+			log.Printf("=======================================================")
+
+			if len(g1Links) == 0 || len(g2Links) == 0 {
+				log.Printf("[!] Network Partition: One or both ground stations have NO active uplink.")
+				log.Printf("    %s links: %d | %s links: %d\n\n",
+					ground1.GetName(), len(g1Links), ground2.GetName(), len(g2Links))
+				continue // Ugrás a következő szimulációs lépésre
+			}
+
+			// Accessing the first active link for each ground station (for demonstration)
+			var l1 = g1Links[0]
+			var l2 = g2Links[0]
 			var uplinkSat1 = l1.GetOther(ground1)
 			var uplinkSat2 = l2.GetOther(ground2)
+
+			// Calculate route
 			var route, err = ground1.GetRouter().RouteToNode(ground2, nil)
 			var interSatelliteRoute, _ = uplinkSat1.GetRouter().RouteToNode(uplinkSat2, nil)
-			if err != nil {
-				log.Println("Routing error:", err)
-			} else {
-				log.Println("Route from", ground1.GetName(), "to", ground2.GetName(), "in", route.Latency(), "ms")
-				log.Println("Uplink latency", l1.Latency()+l2.Latency(), "ms")
-				log.Println("Latency between uplink nodes:", interSatelliteRoute.Latency(), "ms")
-				log.Println(ground1.GetName(), "->", uplinkSat1.GetName(), "->", uplinkSat2.GetName(), "->", ground2.GetName())
-				log.Println(l1.Distance(), "->", uplinkSat1.DistanceTo(uplinkSat2), "->", l2.Distance())
-				log.Println(l1.Latency(), "->", interSatelliteRoute.Latency(), "->", l2.Latency())
-				log.Println(uplinkSat1.DistanceTo(uplinkSat2)/1000, "km apart")
-				log.Println(uplinkSat1.GetPosition(), uplinkSat2.GetPosition())
-			}
-			log.Println(len(sats), "satellites in simulation.")
-			log.Println("Simulation stepped by 60 seconds.")
 
+			// --- Connection Status ---
+			if err != nil || !route.Reachable() {
+				log.Printf("[X] CONNECTION OFFLINE: %s -> %s", ground1.GetName(), ground2.GetName())
+				log.Printf("    Reason: No route found through the constellation.")
+			} else {
+				log.Printf("[OK] CONNECTION ONLINE: %s -> %s", ground1.GetName(), ground2.GetName())
+				log.Printf("     Path structure: [Ground] -> (Uplink Sat) ... (Downlink Sat) <- [Ground]")
+				log.Printf("     Used nodes:     [%s] -> (%s) ... (%s) <- [%s]",
+					ground1.GetName(), uplinkSat1.GetName(), uplinkSat2.GetName(), ground2.GetName())
+
+				log.Printf("\n  --- Latency Breakdown ---")
+				log.Printf("  • Uplink (%s):     %6.2f ms", uplinkSat1.GetName(), l1.Latency())
+				log.Printf("  • Space Routing:         %6d ms", interSatelliteRoute.Latency())
+				log.Printf("  • Downlink (%s):   %6.2f ms", uplinkSat2.GetName(), l2.Latency())
+				log.Printf("  ---------------------------------")
+				log.Printf("  TOTAL End-to-End Delay:  %6d ms", route.Latency())
+
+				log.Printf("\n  --- Physical Distances ---")
+				log.Printf("  • G1 to Sat1:            %6.2f km", l1.Distance()/1000)
+				log.Printf("  • Sat1 to Sat2 (Direct): %6.2f km", uplinkSat1.DistanceTo(uplinkSat2)/1000)
+				log.Printf("  • Sat2 to G2:            %6.2f km", l2.Distance()/1000)
+			}
+
+			// --- Environmental Info ---
 			var statePlugin = types.GetStatePlugin[stateplugin.SunStatePlugin](simulationController.GetStatePluginRepository())
-			log.Println("Sunlight exposure of", uplinkSat1.GetName(), "is", statePlugin.GetSunlightExposure(uplinkSat1))
+			if statePlugin != nil {
+				sunExp1 := statePlugin.GetSunlightExposure(uplinkSat1)
+				sunExp2 := statePlugin.GetSunlightExposure(uplinkSat2)
+				log.Printf("\n  --- Environmental Info ---")
+				log.Printf("  • %s Sunlight Exposure: %.2f%%", uplinkSat1.GetName(), sunExp1*100)
+				log.Printf("  • %s Sunlight Exposure: %.2f%%", uplinkSat2.GetName(), sunExp2*100)
+			}
+
+			log.Printf("=======================================================\n\n")
 		}
 	}
 }

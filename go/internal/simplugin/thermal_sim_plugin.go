@@ -82,7 +82,7 @@ func (p *ThermalSimPlugin) PostSimulationStep(simulation types.SimulationControl
 			tempC := state.Temperature - 273.15 // Convert to Celsius
 			temperatures = append(temperatures, tempC)
 
-			// Inicializálás az első elemmel
+			// Inicializing min/max values with the first entry
 			if first {
 				minTemp = tempC
 				maxTemp = tempC
@@ -90,7 +90,7 @@ func (p *ThermalSimPlugin) PostSimulationStep(simulation types.SimulationControl
 				maxNodeName = name
 				first = false
 			} else {
-				// Minimum és maximum keresése névvel együtt
+				// finding minimum and maximum temperatures with node names
 				if tempC < minTemp {
 					minTemp = tempC
 					minNodeName = name

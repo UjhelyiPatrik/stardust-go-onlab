@@ -114,7 +114,7 @@ func (p *ThermalEnvironmentStatePlugin) updateSunVector(simTime time.Time) {
 	days := simTime.Sub(p.refTime).Hours() / 24.0
 	angle := days * 2 * math.Pi / 365.25
 
-	// Tengelyferdeség (obliquity of the ecliptic) ~ 23.44 fok
+	// obliquity of the ecliptic) ~ 23.44 degrees
 	epsilon := 23.44 * math.Pi / 180.0
 
 	p.sunVector = types.Vector{
@@ -255,10 +255,10 @@ func (p *ThermalEnvironmentStatePlugin) calculateSolarHeat(position types.Vector
 func (p *ThermalEnvironmentStatePlugin) calculateAlbedoHeat(position types.Vector, thermalProps types.ThermalProperties) float64 {
 	dist := math.Sqrt(position.X*position.X + position.Y*position.Y + position.Z*position.Z)
 
-	// Föld-Nap megvilágítási szög (dot product)
+	// Sunlight incidence angle (dot product)
 	dotProduct := (position.X*p.sunVector.X + position.Y*p.sunVector.Y + position.Z*p.sunVector.Z) / dist
 
-	// Ha a műhold a sötét oldalon van, nincs albedó
+	// If the satellite is on the dark side, there is no albedo
 	if dotProduct <= 0 {
 		return 0.0
 	}
@@ -267,7 +267,7 @@ func (p *ThermalEnvironmentStatePlugin) calculateAlbedoHeat(position types.Vecto
 	albedoFactor := types.EarthAlbedoFactor
 	solarConstant := types.SolarConstant
 
-	// Az albedó intenzitása függ a beesési szögtől is (Lambert-féle koszinusz törvény)
+	// The intensity of albedo depends on the incidence angle (Lambert's cosine law)
 	return thermalProps.Absorptivity * solarConstant * albedoFactor * thermalProps.SurfaceArea * viewFactor * dotProduct
 }
 
