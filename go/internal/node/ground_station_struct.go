@@ -39,6 +39,7 @@ func NewGroundStation(name string, lat float64, lon float64, protocol types.Grou
 	}
 	protocol.Mount(gs)
 	router.Mount(gs)
+	computing.Mount(gs)
 	gs.updatePositionFromElapsed(0)
 	return gs
 }

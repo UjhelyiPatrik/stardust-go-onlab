@@ -138,7 +138,7 @@ func (p *BatterySimPlugin) PostSimulationStep(simulation types.SimulationControl
 		fmt.Printf("Max Power Generation: %.2f W (%s)\n", maxGeneration, maxGenNode)
 		fmt.Printf("Max Power Consumption: %.2f W (%s)\n", maxConsumption, maxConsNode)
 		fmt.Printf("Average Power Consumption: %.2f W\n", avgConsumption)
-		fmt.Println("==========================================================\n")
+		fmt.Println("==========================================================\n ")
 	}
 
 	return nil

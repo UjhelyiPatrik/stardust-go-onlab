@@ -52,6 +52,7 @@ func NewSatellite(name string, inclination, raan, ecc, argPerigee, meanAnomaly, 
 
 	isl.Mount(s)
 	router.Mount(s)
+	computing.Mount(s)
 	s.UpdatePosition(simTime)
 	return s
 }

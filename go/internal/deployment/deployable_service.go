@@ -10,6 +10,7 @@ type DeployableService struct {
 	ServiceName string  // The name of the service
 	Cpu         float64 // CPU required by the service
 	Memory      float64 // Memory required by the service
+	deployed    bool    // Indicates whether the service is currently deployed
 }
 
 // NewDeployableService creates a new instance of DeployableService with the specified parameters.
@@ -31,4 +32,30 @@ func NewDeployableService(serviceName string, cpu, memory float64) (*DeployableS
 		Cpu:         cpu,
 		Memory:      memory,
 	}, nil
+}
+
+func (s *DeployableService) GetServiceName() string {
+	return s.ServiceName
+}
+
+func (s *DeployableService) GetCpuUsage() float64 {
+	return s.Cpu
+}
+
+func (s *DeployableService) GetMemoryUsage() float64 {
+	return s.Memory
+}
+
+func (s *DeployableService) IsDeployed() bool {
+	return s.deployed
+}
+
+func (s *DeployableService) Deploy() error {
+	s.deployed = true
+	return nil
+}
+
+func (s *DeployableService) Remove() error {
+	s.deployed = false
+	return nil
 }

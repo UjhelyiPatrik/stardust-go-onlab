@@ -121,7 +121,7 @@ func (p *ThermalSimPlugin) PostSimulationStep(simulation types.SimulationControl
 		fmt.Printf("Minimum Temperature: %.2f°C (%s)\n", minTemp, minNodeName)
 		fmt.Printf("Average Temperature: %.2f°C\n", avgTemp)
 		fmt.Printf("Median Temperature: %.2f°C\n", medianTemp)
-		fmt.Println("==================================================\n")
+		fmt.Println("==================================================\n ")
 	}
 
 	return nil
@@ -276,7 +276,9 @@ func (p *ThermalSimPlugin) IsOverheating(node types.Node) bool {
 		return false
 	}
 	thermalProps := p.getThermalProperties(node)
-	return state.Temperature > thermalProps.MaxTemperature*0.9
+
+	// Consider overheating if the temperature is within 10 degrees of the maximum threshold
+	return state.Temperature > (thermalProps.MaxTemperature - 10.0)
 }
 
 func (p *ThermalSimPlugin) IsHypothermia(node types.Node) bool {

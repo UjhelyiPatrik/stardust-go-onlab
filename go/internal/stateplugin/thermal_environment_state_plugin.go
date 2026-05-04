@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/polaris-slo-cloud/stardust-go/configs"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/helper"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
@@ -53,7 +54,7 @@ type ThermalEnvironmentStatePlugin struct {
 }
 
 func NewThermalEnvironmentStatePlugin() *ThermalEnvironmentStatePlugin {
-	return &ThermalEnvironmentStatePlugin{
+	p := &ThermalEnvironmentStatePlugin{
 		environmentalHeat: make(map[types.Node]types.EnvironmentalHeat),
 		orbitalPositions:  make(map[types.Node]types.OrbitalPosition),
 		states:            make([]map[string]types.EnvironmentalHeat, 0),
@@ -63,6 +64,33 @@ func NewThermalEnvironmentStatePlugin() *ThermalEnvironmentStatePlugin {
 		earthRadius:       6371000.0,                      // Earth radius in meters
 		refTime:           time.Now(),
 	}
+
+	configPath := "./resources/configs/physicalConfig.yaml"
+	physicalConfig, err := configs.LoadPhysicalConfig(configPath)
+	if err == nil && physicalConfig != nil {
+		for satType, props := range physicalConfig.Thermal {
+			p.SetThermalProperties(satType, types.ThermalProperties{
+				ThermalMass:    props.ThermalMass,
+				SurfaceArea:    props.SurfaceArea,
+				Absorptivity:   props.Absorptivity,
+				Emissivity:     props.Emissivity,
+				MaxTemperature: props.MaxTemperature,
+				MinTemperature: props.MinTemperature,
+			})
+		}
+		for satType, props := range physicalConfig.Power {
+			p.SetPowerProperties(satType, types.PowerProperties{
+				SolarEfficiency:      props.SolarEfficiency,
+				SolarPanelArea:       props.SolarPanelArea,
+				MaxPowerGeneration:   props.MaxPowerGeneration,
+				IdlePowerConsumption: props.IdlePowerConsumption,
+			})
+		}
+	} else {
+		fmt.Printf("[WARN] ThermalEnvironmentStatePlugin: Could not load physical config: %v\n", err)
+	}
+
+	return p
 }
 
 // GetName returns the plugin name

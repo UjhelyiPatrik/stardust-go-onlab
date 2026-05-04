@@ -64,6 +64,11 @@ func main() {
 		"",
 		"Plugin names (optional, comma-separated list)",
 	)
+	orchestrationStrategyString := flag.String(
+		"orchestrator",
+		"sunlight", // Default strategy
+		"Task orchestration strategy: sunlight, coldest, balanced",
+	)
 	flag.Parse()
 
 	simulationPluginList := strings.Split(*simulationPluginString, ",")
@@ -96,10 +101,22 @@ func main() {
 	if *simulationStateInputFile != "" {
 		simService = startSimulationIteration(*simulationConfig, *computingConfig, *routerConfig, *simulationStateInputFile, simulationPluginList)
 	} else {
-		simService = startSimulation(*simulationConfig, *islConfigString, *groundLinkConfigString, *computingConfig, *routerConfig, simulationStateOutputFile, simulationPluginList, statePluginList)
+		simService = startSimulation(*simulationConfig, *islConfigString, *groundLinkConfigString, *computingConfig, *routerConfig, simulationStateOutputFile, simulationPluginList, statePluginList, *orchestrationStrategyString)
 	}
 
-	myCode(simService, *simulationConfig)
+	defer simService.Close()
+
+	if simulationConfig.StepInterval >= 0 {
+		log.Printf("Starting autorun simulation with orchestrator strategy: %s", *orchestrationStrategyString)
+		done := simService.StartAutorun()
+		<-done // blocks main goroutine until simulation stops
+	} else {
+		log.Printf("Simulation loaded (Manual mode). Orchestrator strategy: %s", *orchestrationStrategyString)
+		stepSeconds := float64(simulationConfig.StepMultiplier)
+		for range simulationConfig.StepCount {
+			simService.StepBySeconds(stepSeconds)
+		}
+	}
 }
 
 func startSimulationIteration(simulationConfig configs.SimulationConfig, computingConfig []configs.ComputingConfig, routerConfig configs.RouterConfig, simulationStateInputFile string, simulationPluginList []string) types.SimulationController {
@@ -127,7 +144,7 @@ func startSimulationIteration(simulationConfig configs.SimulationConfig, computi
 	return simStateDeserializer.LoadIterator()
 }
 
-func startSimulation(simulationConfig configs.SimulationConfig, islConfigString string, groundLinkConfigString string, computingConfig []configs.ComputingConfig, routerConfig configs.RouterConfig, simulationStateOutputFile *string, simulationPluginList []string, statePluginList []string) types.SimulationController {
+func startSimulation(simulationConfig configs.SimulationConfig, islConfigString string, groundLinkConfigString string, computingConfig []configs.ComputingConfig, routerConfig configs.RouterConfig, simulationStateOutputFile *string, simulationPluginList []string, statePluginList []string, orchestrationStrategyString string) types.SimulationController {
 	islConfig, err := configs.LoadConfigFromFile[configs.InterSatelliteLinkConfig](islConfigString)
 	if err != nil {
 		log.Fatalf("Failed to load isl configuration: %v", err)
@@ -151,6 +168,9 @@ func startSimulation(simulationConfig configs.SimulationConfig, islConfigString 
 		log.Fatalf("Failed to build simualtion plugins: %v", err)
 		return nil
 	}
+
+	taskOrchestrator := deployment.NewTaskOrchestratorPlugin(orchestrationStrategyString, simPlugins)
+	simPlugins = append(simPlugins, taskOrchestrator)
 
 	// Step 4.2: Initialize state plugin builder
 	statePluginBuilder := stateplugin.NewStatePluginBuilder()
@@ -192,98 +212,4 @@ func startSimulation(simulationConfig configs.SimulationConfig, islConfigString 
 	}
 
 	return simService
-}
-
-func myCode(simulationController types.SimulationController, simulationConfig configs.SimulationConfig) {
-	defer simulationController.Close()
-
-	// Start the simulation loop or run individual code
-	if simulationConfig.StepInterval >= 0 {
-		done := simulationController.StartAutorun()
-		<-done // blocks main goroutine until simulation stops
-	} else {
-		log.Println("Simulation loaded. Not autorunning as StepInterval < 0.")
-
-		// Read the simulatin step time
-		stepSeconds := float64(simulationConfig.StepMultiplier)
-
-		for range simulationConfig.StepCount {
-			// Advance simulation time by 10 minutes for demonstration
-			simulationController.StepBySeconds(stepSeconds)
-
-			var grounds = simulationController.GetGroundStations()
-			var sats = simulationController.GetSatellites()
-
-			// Safety check to ensure we have enough ground stations for the test scenario
-			if len(grounds) <= 80 {
-				log.Println("Error: Not enough ground stations for this test.")
-				return
-			}
-
-			var ground1 = grounds[0]
-			var ground2 = grounds[80]
-
-			// --- Network (Defensive Programming) ---
-			g1Links := ground1.GetLinkNodeProtocol().Established()
-			g2Links := ground2.GetLinkNodeProtocol().Established()
-
-			log.Printf("\n=======================================================")
-			log.Printf(" SIMULATION STEP (Advanced by %.0f minutes)", stepSeconds/60)
-			log.Printf(" Current Simulation Time: %v", simulationController.GetSimulationTime())
-			log.Printf(" Network state: %d Satellites | %d Ground Stations", len(sats), len(grounds))
-			log.Printf("=======================================================")
-
-			if len(g1Links) == 0 || len(g2Links) == 0 {
-				log.Printf("[!] Network Partition: One or both ground stations have NO active uplink.")
-				log.Printf("    %s links: %d | %s links: %d\n\n",
-					ground1.GetName(), len(g1Links), ground2.GetName(), len(g2Links))
-				continue // Ugrás a következő szimulációs lépésre
-			}
-
-			// Accessing the first active link for each ground station (for demonstration)
-			var l1 = g1Links[0]
-			var l2 = g2Links[0]
-			var uplinkSat1 = l1.GetOther(ground1)
-			var uplinkSat2 = l2.GetOther(ground2)
-
-			// Calculate route
-			var route, err = ground1.GetRouter().RouteToNode(ground2, nil)
-			var interSatelliteRoute, _ = uplinkSat1.GetRouter().RouteToNode(uplinkSat2, nil)
-
-			// --- Connection Status ---
-			if err != nil || !route.Reachable() {
-				log.Printf("[X] CONNECTION OFFLINE: %s -> %s", ground1.GetName(), ground2.GetName())
-				log.Printf("    Reason: No route found through the constellation.")
-			} else {
-				log.Printf("[OK] CONNECTION ONLINE: %s -> %s", ground1.GetName(), ground2.GetName())
-				log.Printf("     Path structure: [Ground] -> (Uplink Sat) ... (Downlink Sat) <- [Ground]")
-				log.Printf("     Used nodes:     [%s] -> (%s) ... (%s) <- [%s]",
-					ground1.GetName(), uplinkSat1.GetName(), uplinkSat2.GetName(), ground2.GetName())
-
-				log.Printf("\n  --- Latency Breakdown ---")
-				log.Printf("  • Uplink (%s):     %6.2f ms", uplinkSat1.GetName(), l1.Latency())
-				log.Printf("  • Space Routing:         %6d ms", interSatelliteRoute.Latency())
-				log.Printf("  • Downlink (%s):   %6.2f ms", uplinkSat2.GetName(), l2.Latency())
-				log.Printf("  ---------------------------------")
-				log.Printf("  TOTAL End-to-End Delay:  %6d ms", route.Latency())
-
-				log.Printf("\n  --- Physical Distances ---")
-				log.Printf("  • G1 to Sat1:            %6.2f km", l1.Distance()/1000)
-				log.Printf("  • Sat1 to Sat2 (Direct): %6.2f km", uplinkSat1.DistanceTo(uplinkSat2)/1000)
-				log.Printf("  • Sat2 to G2:            %6.2f km", l2.Distance()/1000)
-			}
-
-			// --- Environmental Info ---
-			var statePlugin = types.GetStatePlugin[stateplugin.SunStatePlugin](simulationController.GetStatePluginRepository())
-			if statePlugin != nil {
-				sunExp1 := statePlugin.GetSunlightExposure(uplinkSat1)
-				sunExp2 := statePlugin.GetSunlightExposure(uplinkSat2)
-				log.Printf("\n  --- Environmental Info ---")
-				log.Printf("  • %s Sunlight Exposure: %.2f%%", uplinkSat1.GetName(), sunExp1*100)
-				log.Printf("  • %s Sunlight Exposure: %.2f%%", uplinkSat2.GetName(), sunExp2*100)
-			}
-
-			log.Printf("=======================================================\n\n")
-		}
-	}
 }

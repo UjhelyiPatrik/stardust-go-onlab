@@ -28,9 +28,9 @@ func (pb *SimPluginBuilder) BuildPlugins(pluginNames []string) ([]types.Simulati
 			plugins = append(plugins, NewThermalSimPlugin())
 		case "PhysicalPluginCoordinator":
 			configPath := "./resources/configs/physicalConfig.yaml"
-			
+
 			physicalConfig, err := configs.LoadPhysicalConfig(configPath)
-			if err!= nil {
+			if err != nil {
 				return nil, fmt.Errorf("failed to load physical config at %s: %w", configPath, err)
 			}
 			coordinator := NewPhysicalPluginCoordinator(physicalConfig)
