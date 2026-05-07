@@ -8,6 +8,9 @@ type RouteResult interface {
 	// Latency returns the latency of the calculated route
 	Latency() int
 
+	// Path returns the path of the calculated route
+	Path() []Link
+
 	// TODO remove
 	AddCalculationDuration(duration int) RouteResult
 

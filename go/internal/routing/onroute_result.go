@@ -9,14 +9,16 @@ import (
 
 type OnRouteResult struct {
 	latency             int
+	path                []types.Link
 	calculationDuration int
 	firstRequest        bool
 	lock                sync.Mutex
 }
 
-func NewOnRouteResult(latency, calculationDuration int) *OnRouteResult {
+func NewOnRouteResult(latency, calculationDuration int, path []types.Link) *OnRouteResult {
 	return &OnRouteResult{
 		latency:             latency,
+		path:                path,
 		calculationDuration: calculationDuration,
 		firstRequest:        true,
 	}
@@ -60,4 +62,9 @@ func (r *OnRouteResult) AddCalculationDuration(calculationDuration int) types.Ro
 func delayMilliseconds(ms int) error {
 	time.Sleep(time.Duration(ms) * time.Millisecond)
 	return nil
+}
+
+// Path returns the path of the calculated route
+func (r *OnRouteResult) Path() []types.Link {
+	return r.path
 }

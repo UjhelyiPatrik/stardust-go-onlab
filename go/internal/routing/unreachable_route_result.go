@@ -21,3 +21,7 @@ func (r *UnreachableRouteResult) WaitLatencyAsync() error {
 func (r *UnreachableRouteResult) AddCalculationDuration(ms int) types.RouteResult {
 	return r
 }
+
+func (r *UnreachableRouteResult) Path() []types.Link {
+	return nil
+}

@@ -19,4 +19,13 @@ type Link interface {
 
 	// Nodes returns the two nodes connected by this link.
 	Nodes() (Node, Node)
+
+	// AddTraffic adds transferred bytes to the link's traffic counter.
+	AddTraffic(bytes uint64)
+
+	// GetTraffic returns the total transferred bytes in the current step.
+	GetTraffic() uint64
+
+	// ResetTraffic clears the traffic counter for the next step.
+	ResetTraffic()
 }

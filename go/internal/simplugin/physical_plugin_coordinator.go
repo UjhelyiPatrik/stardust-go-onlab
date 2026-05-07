@@ -86,6 +86,7 @@ func (c *PhysicalPluginCoordinator) configureProperties() {
 			SolarPanelArea:       props.SolarPanelArea,
 			MaxPowerGeneration:   props.MaxPowerGeneration,
 			IdlePowerConsumption: props.IdlePowerConsumption,
+			IslEnergyPerByte:     props.IslEnergyPerByte,
 		}
 		c.batteryPlugin.SetPowerProperties(satType, powerProps)
 	}

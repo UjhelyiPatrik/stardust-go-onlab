@@ -1,6 +1,8 @@
 package linktypes
 
 import (
+	"sync/atomic"
+
 	"github.com/polaris-slo-cloud/stardust-go/configs"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
@@ -9,8 +11,9 @@ var _ types.Link = (*PrecomputedLink)(nil)
 
 // PrecomputedLink represents a precomputed link (no actual calculations with this link)
 type PrecomputedLink struct {
-	Node1 types.Node
-	Node2 types.Node
+	Node1   types.Node
+	Node2   types.Node
+	traffic uint64
 }
 
 // NewPrecomputedLink creates a new link between precomputed Nodes
@@ -52,4 +55,16 @@ func (l *PrecomputedLink) GetOther(self types.Node) types.Node {
 
 func (l *PrecomputedLink) Nodes() (types.Node, types.Node) {
 	return l.Node1, l.Node2
+}
+
+func (l *PrecomputedLink) AddTraffic(bytes uint64) {
+	atomic.AddUint64(&l.traffic, bytes)
+}
+
+func (l *PrecomputedLink) GetTraffic() uint64 {
+	return atomic.LoadUint64(&l.traffic)
+}
+
+func (l *PrecomputedLink) ResetTraffic() {
+	atomic.StoreUint64(&l.traffic, 0)
 }

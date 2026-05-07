@@ -30,12 +30,12 @@ type ThermalProperties struct {
 // DefaultThermalProperties returns default values for a 3U CubeSat
 func DefaultThermalProperties() ThermalProperties {
 	return ThermalProperties{
-		ThermalMass:    3500.0,   // J/K for 3U CubeSat
-		SurfaceArea:    0.14,      // m²
-		Absorptivity:   0.92,      // typical for solar panels
-		Emissivity:     0.85,      // typical for black paint
-		MaxTemperature: 333.15,    // 60°C in Kelvin
-		MinTemperature: 253.15,    // -20°C in Kelvin
+		ThermalMass:    3500.0, // J/K for 3U CubeSat
+		SurfaceArea:    0.14,   // m²
+		Absorptivity:   0.92,   // typical for solar panels
+		Emissivity:     0.85,   // typical for black paint
+		MaxTemperature: 333.15, // 60°C in Kelvin
+		MinTemperature: 253.15, // -20°C in Kelvin
 	}
 }
 
@@ -73,14 +73,14 @@ type BatteryProperties struct {
 // DefaultBatteryProperties returns default values for a 3U CubeSat
 func DefaultBatteryProperties() BatteryProperties {
 	return BatteryProperties{
-		Capacity:            10.0,    // 10 Ah
-		NominalVoltage:      7.4,     // 2S Li-ion
-		CoulombEfficiency:   0.95,    // 95%
-		MaxDoD:              0.8,     // 80% max discharge
-		CriticalSOC:         0.2,     // 20% critical
-		InternalResistance:  0.1,     // 100 mOhm
-		MaxVoltage:          8.4,     // 4.2V per cell * 2
-		MinVoltage:          6.0,     // 3.0V per cell * 2
+		Capacity:           10.0, // 10 Ah
+		NominalVoltage:     7.4,  // 2S Li-ion
+		CoulombEfficiency:  0.95, // 95%
+		MaxDoD:             0.8,  // 80% max discharge
+		CriticalSOC:        0.2,  // 20% critical
+		InternalResistance: 0.1,  // 100 mOhm
+		MaxVoltage:         8.4,  // 4.2V per cell * 2
+		MinVoltage:         6.0,  // 3.0V per cell * 2
 	}
 }
 
@@ -101,15 +101,19 @@ type PowerProperties struct {
 
 	// Power consumption when idle in Watts
 	IdlePowerConsumption float64 `json:"idlePowerConsumption" yaml:"idlePowerConsumption"`
+
+	// Energy consumption per byte transmitted via ISL in Joules
+	IslEnergyPerByte float64 `json:"islEnergyPerByte" yaml:"islEnergyPerByte"`
 }
 
 // DefaultPowerProperties returns default values for a 3U CubeSat
 func DefaultPowerProperties() PowerProperties {
 	return PowerProperties{
-		SolarEfficiency:      0.28,    // Typical multi-junction GaAs
-		SolarPanelArea:       0.08,    // m²
-		MaxPowerGeneration:   40.0,    // Watts
-		IdlePowerConsumption: 2.0,     // Watts
+		SolarEfficiency:      0.28,   // Typical multi-junction GaAs
+		SolarPanelArea:       0.08,   // m²
+		MaxPowerGeneration:   40.0,   // Watts
+		IdlePowerConsumption: 2.0,    // Watts
+		IslEnergyPerByte:     1.0e-7, // Joules per byte
 	}
 }
 
@@ -175,14 +179,14 @@ type SatellitePhysicalState struct {
 // NewSatellitePhysicalState creates a new physical state with default values
 func NewSatellitePhysicalState(nodeName string) *SatellitePhysicalState {
 	return &SatellitePhysicalState{
-		NodeName:            nodeName,
-		Temperature:         293.15, // 20°C in Kelvin
-		SOC:                 0.8,    // 80% initial charge
-		PowerConsumption:    0,
-		PowerGeneration:     0,
-		NetCurrent:          0,
-		EnvironmentalHeat:   EnvironmentalHeat{},
-		Timestamp:          time.Now(),
+		NodeName:          nodeName,
+		Temperature:       293.15, // 20°C in Kelvin
+		SOC:               0.8,    // 80% initial charge
+		PowerConsumption:  0,
+		PowerGeneration:   0,
+		NetCurrent:        0,
+		EnvironmentalHeat: EnvironmentalHeat{},
+		Timestamp:         time.Now(),
 	}
 }
 

@@ -1,6 +1,8 @@
 package linktypes
 
 import (
+	"sync/atomic"
+
 	"github.com/polaris-slo-cloud/stardust-go/configs"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
@@ -13,6 +15,8 @@ const linkSpeed = configs.SpeedOfLight * 0.99 // 99% of light speed
 type IslLink struct {
 	Node1 types.Node
 	Node2 types.Node
+
+	traffic uint64
 }
 
 // NewIslLink creates a new ISL between two nodes.
@@ -63,4 +67,16 @@ func (l *IslLink) Involves(node types.Node) bool {
 
 func (l *IslLink) Nodes() (types.Node, types.Node) {
 	return l.Node1, l.Node2
+}
+
+func (l *IslLink) AddTraffic(bytes uint64) {
+	atomic.AddUint64(&l.traffic, bytes)
+}
+
+func (l *IslLink) GetTraffic() uint64 {
+	return atomic.LoadUint64(&l.traffic)
+}
+
+func (l *IslLink) ResetTraffic() {
+	atomic.StoreUint64(&l.traffic, 0)
 }

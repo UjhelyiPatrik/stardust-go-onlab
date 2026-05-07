@@ -77,6 +77,16 @@ func (p *BatterySimPlugin) PostSimulationStep(simulation types.SimulationControl
 		p.updateBatteryState(node, simTime, simulation)
 	}
 
+	visitedLinks := make(map[types.Link]bool)
+	for _, node := range nodes {
+		for _, link := range node.GetLinkNodeProtocol().Established() {
+			if !visitedLinks[link] {
+				link.ResetTraffic()
+				visitedLinks[link] = true
+			}
+		}
+	}
+
 	// === Calculating Power & Battery Statistics ===
 	if len(p.batteryStates) > 0 {
 		var minSOC, maxSOC float64
@@ -182,7 +192,7 @@ func (p *BatterySimPlugin) updateBatteryState(node types.Node, simTime time.Time
 	powerProps := p.getPowerProperties(node)
 
 	// Calculate power consumption from computing
-	powerConsumption := p.calculatePowerConsumption(node, batteryProps)
+	powerConsumption := p.calculatePowerConsumption(node, batteryProps, deltaT)
 
 	// Calculate power generation from solar panels
 	powerGeneration := p.calculatePowerGeneration(node, powerProps)
@@ -218,15 +228,17 @@ func (p *BatterySimPlugin) updateBatteryState(node types.Node, simTime time.Time
 }
 
 // calculatePowerConsumption calculates the power consumption of a satellite
-func (p *BatterySimPlugin) calculatePowerConsumption(node types.Node, batteryProps types.BatteryProperties) float64 {
+func (p *BatterySimPlugin) calculatePowerConsumption(node types.Node, batteryProps types.BatteryProperties, deltaT float64) float64 {
 	powerProps := p.getPowerProperties(node)
 	compNode := node.GetComputing()
+
 	if compNode == nil {
 		return powerProps.IdlePowerConsumption
 	}
 
 	cpuUsage := 0.0
 	memoryUsage := 0.0
+
 	if comp, ok := compNode.(*computing.Computing); ok {
 		cpuUsage = comp.CpuUsage
 		memoryUsage = comp.MemoryUsage
@@ -236,7 +248,22 @@ func (p *BatterySimPlugin) calculatePowerConsumption(node types.Node, batteryPro
 	cpuPower := cpuUsage * 10.0      // 10W per unit of CPU usage
 	memoryPower := memoryUsage * 0.1 // 0.1W per unit of memory
 
-	return basePower + cpuPower + memoryPower
+	// --- ÚJ KÓD: Hálózati forgalom áramfogyasztása ---
+	networkPower := 0.0
+	if deltaT > 0 && powerProps.IslEnergyPerByte > 0 {
+		for _, link := range node.GetLinkNodeProtocol().Established() {
+			traffic := float64(link.GetTraffic())
+			if traffic > 0 {
+				// Mivel két végpontja van a linknek, az adás/vétel tranzakció energiáját kiszámoljuk
+				// Energia (Joule) = Forgalom (Byte) * Fogyasztás (J/Byte)
+				// Teljesítmény (Watt) = Energia (J) / Eltelt Idő (mp)
+				networkPower += (traffic * powerProps.IslEnergyPerByte) / deltaT
+			}
+		}
+	}
+	// -------------------------------------------------
+
+	return basePower + cpuPower + memoryPower + networkPower
 }
 
 // calculatePowerGeneration calculates the solar power generation

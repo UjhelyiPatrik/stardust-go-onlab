@@ -55,7 +55,7 @@ func (r *AStarRouter) ReceiveServiceAdvertismentsAsync(serviceName string, outli
 }
 
 // RouteToService finds the nearest node that hosts the service and routes to it.
-func (r *AStarRouter) RouteToService(serviceName string, payload types.Payload) (types.RouteResult, error) {
+func (r *AStarRouter) RouteToService(serviceName string) (types.RouteResult, error) {
 	if r.self == nil {
 		return nil, errors.New("router not mounted")
 	}
@@ -74,19 +74,19 @@ func (r *AStarRouter) RouteToService(serviceName string, payload types.Payload) 
 	sort.Slice(candidates, func(i, j int) bool {
 		return r.self.DistanceTo(candidates[i]) < r.self.DistanceTo(candidates[j])
 	})
-	return r.RouteTo(candidates[0], payload)
+	return r.RouteTo(candidates[0])
 }
 
 // RouteToNode is used to route to a specific node. This method satisfies the IRouter interface.
-func (r *AStarRouter) RouteToNode(target types.Node, payload types.Payload) (types.RouteResult, error) {
+func (r *AStarRouter) RouteToNode(target types.Node) (types.RouteResult, error) {
 	if r.self == nil {
 		return nil, errors.New("router not mounted")
 	}
-	return r.RouteTo(target, payload)
+	return r.RouteTo(target)
 }
 
 // RouteTo executes A* from the mounted node to the given target.
-func (r *AStarRouter) RouteTo(target types.Node, payload types.Payload) (types.RouteResult, error) {
+func (r *AStarRouter) RouteTo(target types.Node) (types.RouteResult, error) {
 	if r.self == nil {
 		return nil, errors.New("router not mounted")
 	}
@@ -94,10 +94,10 @@ func (r *AStarRouter) RouteTo(target types.Node, payload types.Payload) (types.R
 	openset := make(map[types.Node]float64)
 	gScore := map[types.Node]float64{r.self: 0}
 	fScore := map[types.Node]float64{r.self: heuristic(r.self, target)}
+	cameFrom := make(map[types.Node]types.Link)
 	openset[r.self] = fScore[r.self]
 
 	for len(openset) > 0 {
-		// Find node in openset with lowest fScore
 		var current types.Node
 		minScore := math.MaxFloat64
 		for n, score := range openset {
@@ -109,9 +109,15 @@ func (r *AStarRouter) RouteTo(target types.Node, payload types.Payload) (types.R
 		delete(openset, current)
 
 		if current == target {
-			return NewOnRouteResult(int(gScore[current]), 0), nil
+			var path []types.Link
+			curr := target
+			for curr != r.self {
+				link := cameFrom[curr]
+				path = append([]types.Link{link}, path...)
+				curr = link.GetOther(curr)
+			}
+			return NewOnRouteResult(int(gScore[current]), len(path), path), nil
 		}
-
 		for _, l := range current.GetLinkNodeProtocol().Established() {
 			neighbor := l.GetOther(current)
 			alt := gScore[current] + l.Latency()
@@ -119,6 +125,7 @@ func (r *AStarRouter) RouteTo(target types.Node, payload types.Payload) (types.R
 				gScore[neighbor] = alt
 				fScore[neighbor] = alt + heuristic(neighbor, target)
 				openset[neighbor] = fScore[neighbor]
+				cameFrom[neighbor] = l
 			}
 		}
 	}

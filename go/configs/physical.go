@@ -38,14 +38,14 @@ type BatteryConfig map[string]BatteryPropertiesConfig
 
 // BatteryPropertiesConfig holds the battery properties for a satellite type
 type BatteryPropertiesConfig struct {
-	Capacity            float64 `yaml:"capacity"`
-	NominalVoltage      float64 `yaml:"nominalVoltage"`
-	CoulombEfficiency   float64 `yaml:"coulombEfficiency"`
-	MaxDoD              float64 `yaml:"maxDoD"`
-	CriticalSOC         float64 `yaml:"criticalSOC"`
+	Capacity           float64 `yaml:"capacity"`
+	NominalVoltage     float64 `yaml:"nominalVoltage"`
+	CoulombEfficiency  float64 `yaml:"coulombEfficiency"`
+	MaxDoD             float64 `yaml:"maxDoD"`
+	CriticalSOC        float64 `yaml:"criticalSOC"`
 	InternalResistance float64 `yaml:"internalResistance"`
-	MaxVoltage          float64 `yaml:"maxVoltage"`
-	MinVoltage          float64 `yaml:"minVoltage"`
+	MaxVoltage         float64 `yaml:"maxVoltage"`
+	MinVoltage         float64 `yaml:"minVoltage"`
 }
 
 // PowerConfig holds power configuration for different satellite types
@@ -57,24 +57,25 @@ type PowerPropertiesConfig struct {
 	SolarPanelArea       float64 `yaml:"solarPanelArea"`
 	MaxPowerGeneration   float64 `yaml:"maxPowerGeneration"`
 	IdlePowerConsumption float64 `yaml:"idlePowerConsumption"`
+	IslEnergyPerByte     float64 `yaml:"islEnergyPerByte"`
 }
 
 // ConstantsConfig holds physical constants
 type ConstantsConfig struct {
-	StefanBoltzmann float64 `yaml:"stefanBoltzmann"`
-	SolarConstant   float64 `yaml:"solarConstant"`
-	EarthAlbedo     float64 `yaml:"earthAlbedo"`
+	StefanBoltzmann  float64 `yaml:"stefanBoltzmann"`
+	SolarConstant    float64 `yaml:"solarConstant"`
+	EarthAlbedo      float64 `yaml:"earthAlbedo"`
 	EarthTemperature float64 `yaml:"earthTemperature"`
-	EarthRadius     float64 `yaml:"earthRadius"`
-	SpeedOfLight    float64 `yaml:"speedOfLight"`
+	EarthRadius      float64 `yaml:"earthRadius"`
+	SpeedOfLight     float64 `yaml:"speedOfLight"`
 }
 
 // PhysicalSimulationConfig holds simulation settings for physical plugins
 type PhysicalSimulationConfig struct {
-	TimeStep                   float64 `yaml:"timeStep"`
-	EnableCyberPhysicalFeedback bool   `yaml:"enableCyberPhysicalFeedback"`
-	ThermalWarningThreshold    float64 `yaml:"thermalWarningThreshold"`
-	BatteryCriticalThreshold   float64 `yaml:"batteryCriticalThreshold"`
+	TimeStep                    float64 `yaml:"timeStep"`
+	EnableCyberPhysicalFeedback bool    `yaml:"enableCyberPhysicalFeedback"`
+	ThermalWarningThreshold     float64 `yaml:"thermalWarningThreshold"`
+	BatteryCriticalThreshold    float64 `yaml:"batteryCriticalThreshold"`
 }
 
 // LoadPhysicalConfig loads the physical configuration from a YAML file
@@ -126,7 +127,7 @@ func (c *PhysicalConfig) setDefaults() {
 	}
 	if _, ok := c.Battery["default"]; !ok {
 		c.Battery["default"] = BatteryPropertiesConfig{
-			Capacity:            10.0,
+			Capacity:           10.0,
 			NominalVoltage:     7.4,
 			CoulombEfficiency:  0.95,
 			MaxDoD:             0.8,
@@ -147,6 +148,7 @@ func (c *PhysicalConfig) setDefaults() {
 			SolarPanelArea:       0.08,
 			MaxPowerGeneration:   40.0,
 			IdlePowerConsumption: 2.0,
+			IslEnergyPerByte:     1.0e-7,
 		}
 	}
 

@@ -6,14 +6,15 @@ import (
 
 type PreRouteResult struct {
 	latency int
+	path    []types.Link
 }
 
 // NewPreRouteResult creates a new PreRouteResult with the specified latency
-func NewPreRouteResult(latency int) types.RouteResult {
+func NewPreRouteResult(latency int, path []types.Link) types.RouteResult {
 	if latency < 0 {
 		return nil // Return nil if latency is negative
 	}
-	return &PreRouteResult{latency: latency}
+	return &PreRouteResult{latency: latency, path: path}
 }
 
 // Reachable returns whether the route is reachable (PreRoute is always reachable)
@@ -33,5 +34,10 @@ func (r *PreRouteResult) WaitLatencyAsync() error {
 
 // AddCalculationDuration adds additional calculation duration to the route and returns the updated result
 func (r *PreRouteResult) AddCalculationDuration(calculationDuration int) types.RouteResult {
-	return NewOnRouteResult(r.latency, calculationDuration)
+	return NewOnRouteResult(r.latency, calculationDuration, r.path)
+}
+
+// Path returns the path of the calculated route
+func (r *PreRouteResult) Path() []types.Link {
+	return r.path
 }

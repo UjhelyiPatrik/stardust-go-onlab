@@ -1,6 +1,8 @@
 package linktypes
 
 import (
+	"sync/atomic"
+
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
@@ -9,6 +11,8 @@ var _ types.Link = (*GroundLink)(nil)
 type GroundLink struct {
 	GroundStation types.Node
 	Satellite     types.Node
+
+	traffic uint64
 }
 
 // NewGroundLink constructs a link between a ground station and a satellite.
@@ -67,4 +71,16 @@ func (gl *GroundLink) IsReachable() bool {
 // Nodes returns both nodes participating in the link.
 func (gl *GroundLink) Nodes() (types.Node, types.Node) {
 	return gl.GroundStation, gl.Satellite
+}
+
+func (gl *GroundLink) AddTraffic(bytes uint64) {
+	atomic.AddUint64(&gl.traffic, bytes)
+}
+
+func (gl *GroundLink) GetTraffic() uint64 {
+	return atomic.LoadUint64(&gl.traffic)
+}
+
+func (gl *GroundLink) ResetTraffic() {
+	atomic.StoreUint64(&gl.traffic, 0)
 }

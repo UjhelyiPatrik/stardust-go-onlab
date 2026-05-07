@@ -23,8 +23,8 @@ type Router interface {
 
 	// RouteToNode returns a route from mounted node to target node
 	// i.e. read from routing table or calculate on demand
-	RouteToNode(target Node, payload Payload) (RouteResult, error)
+	RouteToNode(target Node) (RouteResult, error)
 
 	// RouteToService returns a route from mounted node to target service
-	RouteToService(serviceName string, payload Payload) (RouteResult, error)
+	RouteToService(serviceName string) (RouteResult, error)
 }
