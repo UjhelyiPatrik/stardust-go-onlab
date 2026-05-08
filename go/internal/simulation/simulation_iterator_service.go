@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/polaris-slo-cloud/stardust-go/configs"
+	"github.com/polaris-slo-cloud/stardust-go/internal/network"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
@@ -68,6 +69,9 @@ func (s *SimulationIteratorService) runSimulationStep(nextTime func(time.Time) t
 	}
 	wg.Wait()
 
+	coordinator := network.NewControlPlaneCoordinator()
+
+	coordinator.UpdateMappings(s.GetSatellites(), s.GetGroundStations(), s.GetSimulationTime())
 	// Link updates (ISL and ground links)
 	for _, node := range s.all {
 		wg.Add(1)

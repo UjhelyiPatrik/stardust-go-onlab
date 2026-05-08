@@ -95,7 +95,7 @@ func (b *SatelliteBuilder) Build() types.Satellite {
 		panic("failed to build router: " + err.Error())
 	}
 
-	return node.NewSatellite(
+	return node.NewLiveSatellite(
 		b.name,
 		b.inclination,
 		b.rightAscension,

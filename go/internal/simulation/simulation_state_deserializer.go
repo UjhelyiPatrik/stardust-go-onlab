@@ -71,7 +71,7 @@ func (d *SimulationStateDeserializer) LoadIterator() types.SimulationController 
 	for i, sat := range metadata.Satellites {
 		router, _ := d.routerBuilder.Build()
 		computing := d.computingBuilder.WithComputingType(sat.ComputingType).Build()
-		satellite := node.NewSimulatedSatellite(sat.Name, router, computing, links.NewLinkFilterProtocol(innerProtocol))
+		satellite := node.NewPrecomputedSatellite(sat.Name, router, computing, links.NewLinkFilterProtocol(innerProtocol))
 		satellites[i] = satellite
 		nodeNames[sat.Name] = satellite
 	}
@@ -80,7 +80,7 @@ func (d *SimulationStateDeserializer) LoadIterator() types.SimulationController 
 	for i, gs := range metadata.Grounds {
 		router, _ := d.routerBuilder.Build()
 		computing := d.computingBuilder.WithComputingType(gs.ComputingType).Build()
-		groundStation := node.NewSimulatedGroundStation(gs.Name, router, computing, links.NewLinkFilterProtocol(innerProtocol))
+		groundStation := node.NewPrecomputedGroundStation(gs.Name, router, computing, links.NewLinkFilterProtocol(innerProtocol))
 		groundStations[i] = groundStation
 		nodeNames[gs.Name] = groundStation
 	}

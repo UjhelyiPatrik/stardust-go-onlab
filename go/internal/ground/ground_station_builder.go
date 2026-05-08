@@ -79,7 +79,7 @@ func (b *GroundStationBuilder) Build() types.GroundStation {
 		panic(err)
 	}
 
-	return node.NewGroundStation(
+	return node.NewLiveGroundStation(
 		b.name,
 		b.latitude,
 		b.longitude,

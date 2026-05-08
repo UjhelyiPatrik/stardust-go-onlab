@@ -9,11 +9,10 @@ import (
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
-var _ types.GroundStation = (*GroundStationStruct)(nil)
+var _ types.GroundStation = (*LiveGroundStation)(nil)
 
-// GroundStationStruct represents an Earth-based node that links to satellites
-// It updates its position over time and tracks the nearest satellites
-type GroundStationStruct struct {
+// LiveGroundStation represents an Earth-based node that calculates its rotation in real-time.
+type LiveGroundStation struct {
 	BaseNode
 
 	Latitude                    float64
@@ -21,12 +20,15 @@ type GroundStationStruct struct {
 	SimulationStartTime         time.Time
 	GroundSatelliteLinkProtocol types.GroundSatelliteLinkProtocol
 
+	// Control Plane fields (FIX: Added missing fields)
+	visibleSatellites []types.Satellite
+
 	mu sync.Mutex
 }
 
-// NewGroundStation creates and initializes a new ground station with link protocol and position
-func NewGroundStation(name string, lat float64, lon float64, protocol types.GroundSatelliteLinkProtocol, simStart time.Time, router types.Router, computing types.Computing) *GroundStationStruct {
-	gs := &GroundStationStruct{
+// NewLiveGroundStation creates and initializes a real-time ground station.
+func NewLiveGroundStation(name string, lat float64, lon float64, protocol types.GroundSatelliteLinkProtocol, simStart time.Time, router types.Router, computing types.Computing) *LiveGroundStation {
+	gs := &LiveGroundStation{
 		BaseNode: BaseNode{
 			Name:      name,
 			Router:    router,
@@ -45,7 +47,7 @@ func NewGroundStation(name string, lat float64, lon float64, protocol types.Grou
 }
 
 // UpdatePosition sets the current position of the ground station based on simulation time
-func (gs *GroundStationStruct) UpdatePosition(simTime time.Time) {
+func (gs *LiveGroundStation) UpdatePosition(simTime time.Time) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 
@@ -54,7 +56,7 @@ func (gs *GroundStationStruct) UpdatePosition(simTime time.Time) {
 }
 
 // updatePositionFromElapsed calculates Earth-centered coordinates using geodetic formula
-func (gs *GroundStationStruct) updatePositionFromElapsed(timeElapsed float64) {
+func (gs *LiveGroundStation) updatePositionFromElapsed(timeElapsed float64) {
 	const (
 		a             = 6378137.0       // semi-major axis in meters
 		b             = 6356752.314245  // semi-minor axis in meters
@@ -80,12 +82,12 @@ func (gs *GroundStationStruct) updatePositionFromElapsed(timeElapsed float64) {
 	gs.Position = types.Vector{X: xRot, Y: yRot, Z: zRot}
 }
 
-func (gs *GroundStationStruct) GetLinkNodeProtocol() types.LinkNodeProtocol {
+func (gs *LiveGroundStation) GetLinkNodeProtocol() types.LinkNodeProtocol {
 	return gs.GroundSatelliteLinkProtocol
 }
 
 // FindNearestSatellite returns the closest satellite in a given list
-func (gs *GroundStationStruct) FindNearestSatellite(sats []types.Satellite) (types.Satellite, error) {
+func (gs *LiveGroundStation) FindNearestSatellite(sats []types.Satellite) (types.Satellite, error) {
 	if len(sats) == 0 {
 		return nil, errors.New("satellite list is empty")
 	}
@@ -99,4 +101,19 @@ func (gs *GroundStationStruct) FindNearestSatellite(sats []types.Satellite) (typ
 		}
 	}
 	return nearest, nil
+}
+
+// SetVisibleSatellites updates the local registry of overseen satellites.
+// Wrapped in mutex to prevent race conditions during tick orchestration.
+func (gs *LiveGroundStation) SetVisibleSatellites(sats []types.Satellite) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.visibleSatellites = sats
+}
+
+// GetVisibleSatellites returns the overseen satellites.
+func (gs *LiveGroundStation) GetVisibleSatellites() []types.Satellite {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	return gs.visibleSatellites
 }

@@ -7,12 +7,11 @@ import (
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
-var _ types.Satellite = (*SatelliteStruct)(nil) // Ensure SatelliteStruct implements Satellite
+var _ types.Satellite = (*LiveSatellite)(nil)
 
-// SatelliteStruct represents a single satellite node in the simulation.
-type SatelliteStruct struct {
-	// Implementing Node methods via the embedded Node struct
-	BaseNode // Embedding BaseNode struct to satisfy the Node interface
+// LiveSatellite represents a satellite node that calculates its orbital mechanics in real-time.
+type LiveSatellite struct {
+	BaseNode
 
 	inclination          float64
 	inclinationRad       float64
@@ -26,16 +25,20 @@ type SatelliteStruct struct {
 	epoch                time.Time
 	ISLProtocol          types.InterSatelliteLinkProtocol
 	groundLinks          []types.Link
+
+	// Control Plane fields (FIX: Added missing fields for interface compliance)
+	coordinatingGS types.GroundStation
 }
 
-// NewSatellite initializes a new Satellite object with orbital configuration and ISL protocol.
-func NewSatellite(name string, inclination, raan, ecc, argPerigee, meanAnomaly, meanMotion float64, epoch time.Time, simTime time.Time, isl types.InterSatelliteLinkProtocol, router types.Router, computing types.Computing) *SatelliteStruct {
+// NewLiveSatellite initializes a new LiveSatellite with orbital configuration.
+// FIXED: Renamed from NewSatellite to clearly indicate real-time computation.
+func NewLiveSatellite(name string, inclination, raan, ecc, argPerigee, meanAnomaly, meanMotion float64, epoch time.Time, simTime time.Time, isl types.InterSatelliteLinkProtocol, router types.Router, computing types.Computing) *LiveSatellite {
 	inclRad := types.DegreesToRadians(inclination)
 	raanRad := types.DegreesToRadians(raan)
 	argPerigeeRad := types.DegreesToRadians(argPerigee)
 
-	s := &SatelliteStruct{
-		BaseNode:             BaseNode{Name: name, Router: router, Computing: computing}, // Embedding Node struct
+	s := &LiveSatellite{
+		BaseNode:             BaseNode{Name: name, Router: router, Computing: computing},
 		inclination:          inclination,
 		inclinationRad:       inclRad,
 		rightAscension:       raan,
@@ -58,7 +61,7 @@ func NewSatellite(name string, inclination, raan, ecc, argPerigee, meanAnomaly, 
 }
 
 // UpdatePosition calculates the satellite's position in the ECI frame based on orbital elements and simulation time
-func (s *SatelliteStruct) UpdatePosition(simTime time.Time) {
+func (s *LiveSatellite) UpdatePosition(simTime time.Time) {
 	deltaT := simTime.Sub(s.epoch).Seconds() // Time since epoch in seconds
 	meanMotionRadPerSec := s.meanMotion * 2.0 * math.Pi / (24 * 3600)
 	meanAnomalyCurrent := s.meanAnomaly + meanMotionRadPerSec*deltaT
@@ -75,12 +78,22 @@ func (s *SatelliteStruct) UpdatePosition(simTime time.Time) {
 	s.Position = applyOrbitalTransformations(xp, yp, zp, s.inclinationRad, s.argumentOfPerigeeRad, s.rightAscensionRad)
 }
 
-func (s *SatelliteStruct) GetLinkNodeProtocol() types.LinkNodeProtocol {
+func (s *LiveSatellite) GetLinkNodeProtocol() types.LinkNodeProtocol {
 	return s.ISLProtocol
 }
 
-func (s *SatelliteStruct) GetISLProtocol() types.InterSatelliteLinkProtocol {
+func (s *LiveSatellite) GetISLProtocol() types.InterSatelliteLinkProtocol {
 	return s.ISLProtocol
+}
+
+// SetCoordinatingGS sets the logical controller for this live satellite.
+func (s *LiveSatellite) SetCoordinatingGS(gs types.GroundStation) {
+	s.coordinatingGS = gs
+}
+
+// GetCoordinatingGS returns the logical controller.
+func (s *LiveSatellite) GetCoordinatingGS() types.GroundStation {
+	return s.coordinatingGS
 }
 
 // ApplyOrbitalTransformations converts orbital plane coordinates into the Earth-Centered Inertial (ECI) frame
