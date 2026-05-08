@@ -136,7 +136,7 @@ func (p *TaskOrchestratorPlugin) PostSimulationStep(sim types.SimulationControll
 			}
 
 			// A stratégiai logika delegálása az adott fájl/algoritmus felé
-			strategyScore := p.Strategy.Evaluate(sat, sunPlugin, p.thermalPlugin, p.batteryPlugin)
+			strategyScore := p.Strategy.Evaluate(nil, sat, task, sunPlugin, p.thermalPlugin, p.batteryPlugin)
 			if strategyScore < 0 {
 				continue
 			}

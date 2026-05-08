@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/polaris-slo-cloud/stardust-go/configs"
-	"github.com/polaris-slo-cloud/stardust-go/internal/deployment"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
@@ -22,7 +21,6 @@ type BaseSimulationService struct {
 	maxStepCount int
 	autorun      bool
 	simTime      time.Time
-	orchestrator *deployment.DeploymentOrchestrator
 
 	lock              sync.Mutex
 	runSimulationStep func(func(time.Time) time.Time)
@@ -39,11 +37,6 @@ func NewBaseSimulationService(config *configs.SimulationConfig, runSimulationSte
 		simTime:           config.SimulationStartTime,
 		runSimulationStep: runSimulationStep,
 	}
-}
-
-// Inject sets the orchestrator dependency
-func (s *BaseSimulationService) Inject(o *deployment.DeploymentOrchestrator) {
-	s.orchestrator = o
 }
 
 // InjectSatellites adds the loaded satellites to the simulation scope

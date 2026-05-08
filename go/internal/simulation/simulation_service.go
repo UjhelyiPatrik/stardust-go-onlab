@@ -111,12 +111,6 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 		wg.Wait()
 	}
 
-	// Check if the orchestrator needs to reschedule
-	if s.orchestrator != nil {
-		log.Println("Checking orchestrator for reschedule...")
-		// s.orchestrator.CheckReschedule()
-	}
-
 	// Execute post-step state plugins
 	for _, plugin := range s.statePluginRepo.GetAllPlugins() {
 		plugin.PostSimulationStep(s)

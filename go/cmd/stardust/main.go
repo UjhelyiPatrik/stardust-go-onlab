@@ -137,10 +137,7 @@ func startSimulationIteration(simulationConfig configs.SimulationConfig, computi
 	// Step 5: State Plugin Builder
 	statePluginBuilder := stateplugin.NewStatePluginPrecompBuilder(simulationStateInputFile)
 
-	// Step 6: Inject orchestrator (if used)
-	orchestrator := deployment.NewDeploymentOrchestrator()
-
-	simStateDeserializer := simulation.NewSimulationStateDeserializer(&simulationConfig, simulationStateInputFile, computingBuilder, routerBuilder, orchestrator, simPlugins, statePluginBuilder)
+	simStateDeserializer := simulation.NewSimulationStateDeserializer(&simulationConfig, simulationStateInputFile, computingBuilder, routerBuilder, simPlugins, statePluginBuilder)
 	return simStateDeserializer.LoadIterator()
 }
 
@@ -195,17 +192,13 @@ func startSimulation(simulationConfig configs.SimulationConfig, islConfigString 
 	// Step 5: Initialize simulation service
 	simService := simulation.NewSimulationService(&simulationConfig, routerBuilder, computingBuilder, simPlugins, types.NewStatePluginRepository(statePlugins), simulationStateOutputFile)
 
-	// Step 6: Inject orchestrator (if used)
-	orchestrator := deployment.NewDeploymentOrchestrator()
-	simService.Inject(orchestrator)
-
-	// Step 8: Load satellites using the loader service
+	// Step 6: Load satellites using the loader service
 	loaderService := satellite.NewSatelliteLoaderService(*islConfig, satBuilder, constellationLoader, simService, fmt.Sprintf("./resources/%s/%s", simulationConfig.SatelliteDataSourceType, simulationConfig.SatelliteDataSource), simulationConfig.SatelliteDataSourceType)
 	if err := loaderService.Start(); err != nil {
 		log.Fatalf("Failed to load satellites: %v", err)
 	}
 
-	// Step 9: Load ground stations using the ground station loader service
+	// Step 7: Load ground stations using the ground station loader service
 	groundLoaderService := ground.NewGroundStationLoaderService(simService, groundStationBuilder, ymlLoader, fmt.Sprintf("./resources/%s/%s", simulationConfig.GroundStationDataSourceType, simulationConfig.GroundStationDataSource), simulationConfig.GroundStationDataSourceType)
 	if err := groundLoaderService.Start(); err != nil {
 		log.Fatalf("Failed to load ground stations: %v", err)

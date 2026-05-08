@@ -8,11 +8,11 @@ import (
 
 type ColdestStrategy struct{}
 
-func (s *ColdestStrategy) Evaluate(sat types.Satellite, sunPlugin stateplugin.SunStatePlugin, thermalPlugin *simplugin.ThermalSimPlugin, batteryPlugin *simplugin.BatterySimPlugin) float64 {
+func (s *ColdestStrategy) Evaluate(source types.Node, target types.Satellite, task types.DeployableService, sunPlugin stateplugin.SunStatePlugin, thermalPlugin *simplugin.ThermalSimPlugin, batteryPlugin *simplugin.BatterySimPlugin) float64 {
 	if thermalPlugin == nil {
 		return 1.0
 	}
-	temp, err := thermalPlugin.GetTemperature(sat)
+	temp, err := thermalPlugin.GetTemperature(target)
 	if err != nil {
 		return 0.5
 	}

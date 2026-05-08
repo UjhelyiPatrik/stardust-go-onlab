@@ -12,8 +12,11 @@ import (
 // Returns a score [0.0, 1.0] representing how well it fits the strategy.
 // Returns -1.0 if it strictly violates the strategy.
 type OrchestrationStrategy interface {
-	// origin parameter stands for the ground station or node from which the satellite is being evaluated for deployment.
-	Evaluate(sat types.Satellite, sunPlugin stateplugin.SunStatePlugin, thermalPlugin *simplugin.ThermalSimPlugin, batteryPlugin *simplugin.BatterySimPlugin) float64
+	// Evaluate calculates the fitness score.
+	// source: The orchestrating Ground Station or the Satellite initiating a handoff.
+	// target: The satellite being evaluated as the destination.
+	// task: The service to be deployed (contains SizeBytes for network cost).
+	Evaluate(source types.Node, target types.Satellite, task types.DeployableService, sunPlugin stateplugin.SunStatePlugin, thermalPlugin *simplugin.ThermalSimPlugin, batteryPlugin *simplugin.BatterySimPlugin) float64
 }
 
 // GetStrategy returns an OrchestrationStrategy based on the provided name.

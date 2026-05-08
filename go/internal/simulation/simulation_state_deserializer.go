@@ -8,7 +8,6 @@ import (
 
 	"github.com/polaris-slo-cloud/stardust-go/configs"
 	"github.com/polaris-slo-cloud/stardust-go/internal/computing"
-	"github.com/polaris-slo-cloud/stardust-go/internal/deployment"
 	"github.com/polaris-slo-cloud/stardust-go/internal/links"
 	"github.com/polaris-slo-cloud/stardust-go/internal/links/linktypes"
 	"github.com/polaris-slo-cloud/stardust-go/internal/node"
@@ -21,19 +20,17 @@ type SimulationStateDeserializer struct {
 	inputFile          string
 	computingBuilder   computing.ComputingBuilder
 	routerBuilder      *routing.RouterBuilder
-	orchestrator       *deployment.DeploymentOrchestrator
 	simPlugins         []types.SimulationPlugin
 	statePluginBuilder types.StatePluginBuilder
 	config             *configs.SimulationConfig
 }
 
 // NewSimulationStateDeserializer creates a new deserializer instance.
-func NewSimulationStateDeserializer(config *configs.SimulationConfig, inputFile string, computingBuilder computing.ComputingBuilder, routerBuilder *routing.RouterBuilder, orchestrator *deployment.DeploymentOrchestrator, simPlugins []types.SimulationPlugin, statePluginBuilder types.StatePluginBuilder) *SimulationStateDeserializer {
+func NewSimulationStateDeserializer(config *configs.SimulationConfig, inputFile string, computingBuilder computing.ComputingBuilder, routerBuilder *routing.RouterBuilder, simPlugins []types.SimulationPlugin, statePluginBuilder types.StatePluginBuilder) *SimulationStateDeserializer {
 	return &SimulationStateDeserializer{
 		inputFile:          inputFile,
 		computingBuilder:   computingBuilder,
 		routerBuilder:      routerBuilder,
-		orchestrator:       orchestrator,
 		simPlugins:         simPlugins,
 		config:             config,
 		statePluginBuilder: statePluginBuilder,
@@ -132,7 +129,6 @@ func (d *SimulationStateDeserializer) LoadIterator() types.SimulationController 
 	statePluginRepository := *types.NewStatePluginRepository(plugins)
 
 	simService := NewSimulationIteratorService(d.config, metadata.States, d.simPlugins, statePluginRepository)
-	simService.Inject(d.orchestrator)
 	simService.InjectSatellites(satellites)
 	simService.InjectGroundStations(groundStations)
 
