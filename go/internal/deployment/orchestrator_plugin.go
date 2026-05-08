@@ -88,7 +88,7 @@ func (p *TaskOrchestratorPlugin) PostSimulationStep(sim types.SimulationControll
 	for i := 0; i < newTasksCount; i++ {
 		taskName := fmt.Sprintf("Task-%d-%d", sim.GetSimulationTime().Unix(), i)
 		cpuLoad := 0.5 + (rand.Float64() * 2.0)
-		task, _ := NewDeployableService(taskName, cpuLoad, 128.0)
+		task, _ := NewDeployableService(taskName, cpuLoad, 128.0, 20971520)
 		p.TaskPool = append(p.TaskPool, task)
 	}
 

@@ -1,6 +1,7 @@
 package node
 
 import (
+	"sync"
 	"time"
 
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
@@ -17,6 +18,9 @@ type PrecomputedGroundStation struct {
 	// Control Plane fields
 	visibleSatellites     []types.Satellite      // Pointers to currently overseen satellites
 	visibleSatelliteNames map[time.Time][]string // Precomputed satellite names over time
+
+	taskQueue []types.DeployableService // Local Task Queue
+	mu        sync.Mutex
 }
 
 func NewPrecomputedGroundStation(name string, router types.Router, computing types.Computing, linkProtocol types.LinkNodeProtocol) *PrecomputedGroundStation {
@@ -25,6 +29,7 @@ func NewPrecomputedGroundStation(name string, router types.Router, computing typ
 		LinkProtocol:          linkProtocol,
 		positions:             make(map[time.Time]types.Vector),
 		visibleSatelliteNames: make(map[time.Time][]string),
+		taskQueue:             make([]types.DeployableService, 0),
 	}
 
 	router.Mount(groundStation)
@@ -63,4 +68,27 @@ func (s *PrecomputedGroundStation) AddVisibleSatelliteNames(time time.Time, name
 // GetPrecomputedVisibleSatelliteNames retrieves the visible satellites for the given tick.
 func (s *PrecomputedGroundStation) GetPrecomputedVisibleSatelliteNames(time time.Time) []string {
 	return s.visibleSatelliteNames[time]
+}
+
+// EnqueueTask adds a new task to the local queue in a thread-safe manner.
+func (gs *PrecomputedGroundStation) EnqueueTask(task types.DeployableService) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.taskQueue = append(gs.taskQueue, task)
+}
+
+// GetTaskQueue returns a copy of pending tasks to prevent race conditions during orchestration.
+func (gs *PrecomputedGroundStation) GetTaskQueue() []types.DeployableService {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	queueCopy := make([]types.DeployableService, len(gs.taskQueue))
+	copy(queueCopy, gs.taskQueue)
+	return queueCopy
+}
+
+// ClearTaskQueue empties the local task queue.
+func (gs *PrecomputedGroundStation) ClearTaskQueue() {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.taskQueue = make([]types.DeployableService, 0)
 }

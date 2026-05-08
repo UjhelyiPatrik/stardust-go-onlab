@@ -69,6 +69,11 @@ func main() {
 		"sunlight", // Default strategy
 		"Task orchestration strategy: sunlight, coldest, balanced",
 	)
+	workloadConfigString := flag.String(
+		"workloadConfig",
+		"./resources/configs/workloadConfig.yaml",
+		"Path to workload config file",
+	)
 	flag.Parse()
 
 	simulationPluginList := strings.Split(*simulationPluginString, ",")
@@ -97,11 +102,16 @@ func main() {
 		log.Fatalf("Failed to load simulation configuration: %v", err)
 	}
 
+	workloadConfig, err := configs.LoadConfigFromFile[configs.WorkloadConfig](*workloadConfigString)
+	if err != nil {
+		log.Fatalf("Failed to load workload configuration: %v", err)
+	}
+
 	var simService types.SimulationController
 	if *simulationStateInputFile != "" {
-		simService = startSimulationIteration(*simulationConfig, *computingConfig, *routerConfig, *simulationStateInputFile, simulationPluginList)
+		simService = startSimulationIteration(*simulationConfig, *computingConfig, *routerConfig, *simulationStateInputFile, simulationPluginList, workloadConfig)
 	} else {
-		simService = startSimulation(*simulationConfig, *islConfigString, *groundLinkConfigString, *computingConfig, *routerConfig, simulationStateOutputFile, simulationPluginList, statePluginList, *orchestrationStrategyString)
+		simService = startSimulation(*simulationConfig, *islConfigString, *groundLinkConfigString, *computingConfig, *routerConfig, simulationStateOutputFile, simulationPluginList, statePluginList, *orchestrationStrategyString, workloadConfig)
 	}
 
 	defer simService.Close()
@@ -119,7 +129,7 @@ func main() {
 	}
 }
 
-func startSimulationIteration(simulationConfig configs.SimulationConfig, computingConfig []configs.ComputingConfig, routerConfig configs.RouterConfig, simulationStateInputFile string, simulationPluginList []string) types.SimulationController {
+func startSimulationIteration(simulationConfig configs.SimulationConfig, computingConfig []configs.ComputingConfig, routerConfig configs.RouterConfig, simulationStateInputFile string, simulationPluginList []string, workloadConfig *configs.WorkloadConfig) types.SimulationController {
 	// Step 2: Build computing builder with configured strategies
 	var computingBuilder computing.ComputingBuilder = computing.NewComputingBuilder(computingConfig)
 
@@ -134,6 +144,13 @@ func startSimulationIteration(simulationConfig configs.SimulationConfig, computi
 		return nil
 	}
 
+	// Step 4.2: Initialize deployment plugin builder
+	deploymentBuilder := deployment.NewDeploymentBuilder(workloadConfig) // workloadConfig paraméter átadva
+	deploymentPlugins := deploymentBuilder.BuildPlugins()
+
+	// Add the deployment plugins to the simulation plugins list
+	simPlugins = append(simPlugins, deploymentPlugins...)
+
 	// Step 5: State Plugin Builder
 	statePluginBuilder := stateplugin.NewStatePluginPrecompBuilder(simulationStateInputFile)
 
@@ -141,7 +158,7 @@ func startSimulationIteration(simulationConfig configs.SimulationConfig, computi
 	return simStateDeserializer.LoadIterator()
 }
 
-func startSimulation(simulationConfig configs.SimulationConfig, islConfigString string, groundLinkConfigString string, computingConfig []configs.ComputingConfig, routerConfig configs.RouterConfig, simulationStateOutputFile *string, simulationPluginList []string, statePluginList []string, orchestrationStrategyString string) types.SimulationController {
+func startSimulation(simulationConfig configs.SimulationConfig, islConfigString string, groundLinkConfigString string, computingConfig []configs.ComputingConfig, routerConfig configs.RouterConfig, simulationStateOutputFile *string, simulationPluginList []string, statePluginList []string, orchestrationStrategyString string, workloadConfig *configs.WorkloadConfig) types.SimulationController {
 	islConfig, err := configs.LoadConfigFromFile[configs.InterSatelliteLinkConfig](islConfigString)
 	if err != nil {
 		log.Fatalf("Failed to load isl configuration: %v", err)
@@ -165,6 +182,13 @@ func startSimulation(simulationConfig configs.SimulationConfig, islConfigString 
 		log.Fatalf("Failed to build simualtion plugins: %v", err)
 		return nil
 	}
+
+	// Step 4.2: Initialize deployment plugin builder
+	deploymentBuilder := deployment.NewDeploymentBuilder(workloadConfig) // workloadConfig paraméter átadva
+	deploymentPlugins := deploymentBuilder.BuildPlugins()
+
+	// Add the deployment plugins to the simulation plugins list
+	simPlugins = append(simPlugins, deploymentPlugins...)
 
 	taskOrchestrator := deployment.NewTaskOrchestratorPlugin(orchestrationStrategyString, simPlugins)
 	simPlugins = append(simPlugins, taskOrchestrator)
