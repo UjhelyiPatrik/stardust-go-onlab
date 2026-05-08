@@ -109,7 +109,7 @@ func main() {
 
 	var simService types.SimulationController
 	if *simulationStateInputFile != "" {
-		simService = startSimulationIteration(*simulationConfig, *computingConfig, *routerConfig, *simulationStateInputFile, simulationPluginList, workloadConfig)
+		simService = startSimulationIteration(*simulationConfig, *computingConfig, *routerConfig, *simulationStateInputFile, simulationPluginList, workloadConfig, *orchestrationStrategyString)
 	} else {
 		simService = startSimulation(*simulationConfig, *islConfigString, *groundLinkConfigString, *computingConfig, *routerConfig, simulationStateOutputFile, simulationPluginList, statePluginList, *orchestrationStrategyString, workloadConfig)
 	}
@@ -129,7 +129,7 @@ func main() {
 	}
 }
 
-func startSimulationIteration(simulationConfig configs.SimulationConfig, computingConfig []configs.ComputingConfig, routerConfig configs.RouterConfig, simulationStateInputFile string, simulationPluginList []string, workloadConfig *configs.WorkloadConfig) types.SimulationController {
+func startSimulationIteration(simulationConfig configs.SimulationConfig, computingConfig []configs.ComputingConfig, routerConfig configs.RouterConfig, simulationStateInputFile string, simulationPluginList []string, workloadConfig *configs.WorkloadConfig, orchestrationStrategyString string) types.SimulationController {
 	// Step 2: Build computing builder with configured strategies
 	var computingBuilder computing.ComputingBuilder = computing.NewComputingBuilder(computingConfig)
 
@@ -145,8 +145,8 @@ func startSimulationIteration(simulationConfig configs.SimulationConfig, computi
 	}
 
 	// Step 4.2: Initialize deployment plugin builder
-	deploymentBuilder := deployment.NewDeploymentBuilder(workloadConfig) // workloadConfig paraméter átadva
-	deploymentPlugins := deploymentBuilder.BuildPlugins()
+	deploymentBuilder := deployment.NewDeploymentBuilder(workloadConfig, orchestrationStrategyString)
+	deploymentPlugins := deploymentBuilder.BuildPlugins(simPlugins)
 
 	// Add the deployment plugins to the simulation plugins list
 	simPlugins = append(simPlugins, deploymentPlugins...)
@@ -184,14 +184,11 @@ func startSimulation(simulationConfig configs.SimulationConfig, islConfigString 
 	}
 
 	// Step 4.2: Initialize deployment plugin builder
-	deploymentBuilder := deployment.NewDeploymentBuilder(workloadConfig) // workloadConfig paraméter átadva
-	deploymentPlugins := deploymentBuilder.BuildPlugins()
+	deploymentBuilder := deployment.NewDeploymentBuilder(workloadConfig, orchestrationStrategyString) // workloadConfig paraméter átadva
+	deploymentPlugins := deploymentBuilder.BuildPlugins(simPlugins)
 
 	// Add the deployment plugins to the simulation plugins list
 	simPlugins = append(simPlugins, deploymentPlugins...)
-
-	taskOrchestrator := deployment.NewTaskOrchestratorPlugin(orchestrationStrategyString, simPlugins)
-	simPlugins = append(simPlugins, taskOrchestrator)
 
 	// Step 4.2: Initialize state plugin builder
 	statePluginBuilder := stateplugin.NewStatePluginBuilder()

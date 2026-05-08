@@ -7,6 +7,7 @@ import (
 
 	"github.com/polaris-slo-cloud/stardust-go/configs"
 	"github.com/polaris-slo-cloud/stardust-go/internal/computing"
+	"github.com/polaris-slo-cloud/stardust-go/internal/network"
 	"github.com/polaris-slo-cloud/stardust-go/internal/routing"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
@@ -98,6 +99,10 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 		}(node)
 	}
 	wg.Wait()
+
+	// Update control plane coordinator with new positions and links
+	coordinator := network.NewControlPlaneCoordinator()
+	coordinator.UpdateMappings(s.GetSatellites(), s.GetGroundStations(), s.simTime)
 
 	// Routing and computation (if enabled)
 	if s.config.UsePreRouteCalc {

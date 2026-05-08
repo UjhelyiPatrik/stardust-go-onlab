@@ -2,6 +2,8 @@ package types
 
 // IDeployedService defines the structure for a deployed service.
 type DeployableService interface {
+	Payload
+
 	// GetServiceName returns the name of the service.
 	GetServiceName() string
 

@@ -1,5 +1,5 @@
-minTasksPerTick: 50
-maxTasksPerTick: 160
+minTasksPerTick: 5
+maxTasksPerTick: 10
 minCpuLoad: 0.1
 maxCpuLoad: 2.0
 minMemory: 64.0

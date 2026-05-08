@@ -15,7 +15,7 @@ type OrchestrationStrategy interface {
 	// Evaluate calculates the fitness score.
 	// source: The orchestrating Ground Station or the Satellite initiating a handoff.
 	// target: The satellite being evaluated as the destination.
-	// task: The service to be deployed (contains SizeBytes for network cost).
+	// task: The service to be deployed. CAN BE NIL during purely environmental health-checks!
 	Evaluate(source types.Node, target types.Satellite, task types.DeployableService, sunPlugin stateplugin.SunStatePlugin, thermalPlugin *simplugin.ThermalSimPlugin, batteryPlugin *simplugin.BatterySimPlugin) float64
 }
 
