@@ -44,7 +44,7 @@ func (p *WorkloadGeneratorPlugin) PostSimulationStep(sim types.SimulationControl
 
 	for i := 0; i < taskCount; i++ {
 		// 2. Generate random attributes within configured bounds
-		cpuLoad := p.config.MinCpuLoad + p.rng.Float64()*(p.config.MaxCpuLoad-p.config.MinCpuLoad)
+		megaCycles := p.config.MinMegaCycles + p.rng.Uint64()%(p.config.MaxMegaCycles-p.config.MinMegaCycles+1)
 		memory := p.config.MinMemory + p.rng.Float64()*(p.config.MaxMemory-p.config.MinMemory)
 
 		var sizeBytes uint64 = p.config.MinSizeBytes
@@ -56,7 +56,7 @@ func (p *WorkloadGeneratorPlugin) PostSimulationStep(sim types.SimulationControl
 		taskName := fmt.Sprintf("Task-%d-%d", sim.GetSimulationTime().Unix(), i)
 
 		// 3. Create the deployable service (which now acts as a types.Payload)
-		task, err := NewDeployableService(taskName, cpuLoad, memory, sizeBytes)
+		task, err := NewDeployableService(taskName, megaCycles, memory, sizeBytes)
 		if err != nil {
 			continue // Skip on invalid parameters
 		}

@@ -1,7 +1,7 @@
-minTasksPerTick: 5
-maxTasksPerTick: 10
-minCpuLoad: 0.1
-maxCpuLoad: 2.0
+minTasksPerTick: 20
+maxTasksPerTick: 100
+minMegaCycles: 1000000
+maxMegaCycles: 50000000
 minMemory: 64.0
 maxMemory: 512.0
 minSizeBytes: 20971520   # 20 MB (Bytes)

@@ -4,8 +4,8 @@ package configs
 type WorkloadConfig struct {
 	MinTasksPerTick int     `yaml:"minTasksPerTick"`
 	MaxTasksPerTick int     `yaml:"maxTasksPerTick"`
-	MinCpuLoad      float64 `yaml:"minCpuLoad"`
-	MaxCpuLoad      float64 `yaml:"maxCpuLoad"`
+	MinMegaCycles   uint64  `yaml:"minMegaCycles"`
+	MaxMegaCycles   uint64  `yaml:"maxMegaCycles"`
 	MinMemory       float64 `yaml:"minMemory"`
 	MaxMemory       float64 `yaml:"maxMemory"`
 	MinSizeBytes    uint64  `yaml:"minSizeBytes"`

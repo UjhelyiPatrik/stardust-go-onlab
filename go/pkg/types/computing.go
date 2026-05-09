@@ -14,6 +14,9 @@ type Computing interface {
 	// GetComputingType return the type of computing resource
 	GetComputingType() ComputingType
 
+	// Tick processes the required clock cycles based on elapsed time (deltaT in seconds).
+	Tick(deltaT float64)
+
 	// TryPlaceDeploymentAsync tries to place a service on this computing unit
 	TryPlaceDeploymentAsync(service DeployableService) (bool, error)
 

@@ -2,39 +2,43 @@ package computing
 
 import (
 	"fmt"
+	"log"
 	"sync"
-	"time"
 
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 // Computing represents the computing resources of a node.
 type Computing struct {
-	Cpu         float64                   // Total CPU available
-	Memory      float64                   // Total memory available
-	Type        types.ComputingType       // Type of the computing unit
-	CpuUsage    float64                   // Current CPU usage
-	MemoryUsage float64                   // Current memory usage
-	Services    []types.DeployableService // List of deployed services (using IDeployedService)
-	mu          sync.Mutex                // Mutex to ensure thread safety
-	node        types.Node                // Node to which this computing is mounted
+	Cpu         float64 // Total CPU available (e.g., Cores * GHz)
+	Memory      float64 // Total memory available (e.g., MB)
+	Type        types.ComputingType
+	CpuUsage    float64 // DYNAMIC Duty Cycle (calculated per tick)
+	MemoryUsage float64 // Statically reserved RAM
+	Services    []types.DeployableService
+	mu          sync.Mutex
+	node        types.Node
 }
 
-func (c *Computing) GetServices() []types.DeployableService {
-	return c.Services
-}
-
-// NewComputing creates a new Computing instance with the provided CPU, memory, and type.
+// NewComputing creates a new Computing instance.
 func NewComputing(cpu, memory float64, ctype types.ComputingType) *Computing {
 	return &Computing{
 		Cpu:      cpu,
 		Memory:   memory,
 		Type:     ctype,
-		Services: []types.DeployableService{},
+		Services: make([]types.DeployableService, 0),
 	}
 }
 
-// Mount attaches this computing unit to a node
+func (c *Computing) GetServices() []types.DeployableService {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	servicesCopy := make([]types.DeployableService, len(c.Services))
+	copy(servicesCopy, c.Services)
+	return servicesCopy
+}
+
 func (c *Computing) Mount(node types.Node) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -46,7 +50,7 @@ func (c *Computing) Mount(node types.Node) error {
 	return nil
 }
 
-// TryPlaceDeploymentAsync tries to place a service on this computing unit
+// TryPlaceDeploymentAsync reserves memory and queues the service. CPU is dynamically allocated in Tick.
 func (c *Computing) TryPlaceDeploymentAsync(service types.DeployableService) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -55,47 +59,95 @@ func (c *Computing) TryPlaceDeploymentAsync(service types.DeployableService) (bo
 		return false, fmt.Errorf("computing must be mounted to node before it can be used")
 	}
 
-	if !c.CanPlace(service) {
+	if !c.canPlaceLockFree(service) {
 		return false, nil
 	}
 
 	c.Services = append(c.Services, service)
-	c.CpuUsage += service.GetCpuUsage()
-	c.MemoryUsage += service.GetMemoryUsage()
-
-	// Simulate advertising the new service
-	go func() {
-		time.Sleep(1 * time.Second) // Simulate async operation
-		// For example, advertising the service to other nodes or components
-		// c.node.Router.AdvertiseNewServiceAsync(service.GetServiceName())
-	}()
+	c.MemoryUsage += service.GetMemoryUsage() // CPU is NOT reserved statically anymore!
 
 	return true, nil
 }
 
-// RemoveDeploymentAsync removes a deployed service from the computing unit
+// RemoveDeploymentAsync removes a deployed service prematurely (Eviction).
 func (c *Computing) RemoveDeploymentAsync(service types.DeployableService) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Find and remove the service
 	for i, s := range c.Services {
 		if s.GetServiceName() == service.GetServiceName() {
 			c.Services = append(c.Services[:i], c.Services[i+1:]...)
-			c.CpuUsage -= service.GetCpuUsage()
 			c.MemoryUsage -= service.GetMemoryUsage()
 			return nil
 		}
 	}
-	return fmt.Errorf("service %s not found", service.GetServiceName())
+	return fmt.Errorf("service %s not found on node", service.GetServiceName())
 }
 
-// CanPlace checks if the service can be placed on this computing unit
-func (c *Computing) CanPlace(service types.DeployableService) bool {
-	if service.GetCpuUsage() > c.CpuAvailable() {
-		return false
+// Tick processes the required clock cycles for all running tasks based on elapsed time.
+// It sets the precise CpuUsage fraction (Duty Cycle) for the thermal and battery plugins.
+func (c *Computing) Tick(deltaT float64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.Services) == 0 {
+		c.CpuUsage = 0.0 // True Idle
+		return
 	}
-	if service.GetMemoryUsage() > c.MemoryAvailable() {
+
+	// Assumption: 1 unit of CPU capacity = 1 GigaCycle/sec (1,000,000,000 cycles).
+	availableCyclesPerSec := uint64(c.Cpu * 1000000000)
+	totalAvailableCycles := uint64(float64(availableCyclesPerSec) * deltaT)
+
+	if totalAvailableCycles == 0 {
+		return
+	}
+
+	// Fair Scheduling: Divide available cycles equally
+	cyclesPerTask := totalAvailableCycles / uint64(len(c.Services))
+
+	var remainingServices []types.DeployableService
+	var totalConsumedCycles uint64 = 0
+
+	for _, service := range c.Services {
+		isCompleted, consumed := service.ExecuteCycles(cyclesPerTask)
+		totalConsumedCycles += consumed
+
+		if isCompleted {
+			c.MemoryUsage -= service.GetMemoryUsage()
+			nodeName := "Unknown"
+			if c.node != nil {
+				nodeName = c.node.GetName()
+			}
+			log.Printf("[SUCCESS] Computing Node %s completed task: %s (Consumed %d cycles)", nodeName, service.GetServiceName(), consumed)
+		} else {
+			remainingServices = append(remainingServices, service)
+		}
+	}
+
+	c.Services = remainingServices
+
+	// DYNAMIC DUTY CYCLE CALCULATION
+	// Represents the exact fraction of CPU utilized during this Tick (e.g. 1.66% instead of 100%)
+	utilization := float64(totalConsumedCycles) / float64(totalAvailableCycles)
+
+	// Cap at 1.0 just for floating point safety
+	if utilization > 1.0 {
+		utilization = 1.0
+	}
+
+	c.CpuUsage = c.Cpu * utilization
+}
+
+func (c *Computing) CanPlace(service types.DeployableService) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.canPlaceLockFree(service)
+}
+
+func (c *Computing) canPlaceLockFree(service types.DeployableService) bool {
+	// ONLY Memory is a hard hardware constraint. CPU time is dynamically shared.
+	if service.GetMemoryUsage() > (c.Memory - c.MemoryUsage) {
 		return false
 	}
 	for _, s := range c.Services {
@@ -106,7 +158,6 @@ func (c *Computing) CanPlace(service types.DeployableService) bool {
 	return true
 }
 
-// HostsService checks if the computing unit hosts a service by name
 func (c *Computing) HostsService(serviceName string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -119,19 +170,22 @@ func (c *Computing) HostsService(serviceName string) bool {
 	return false
 }
 
-// CpuAvailable returns the remaining CPU available
 func (c *Computing) CpuAvailable() float64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.Cpu - c.CpuUsage
 }
 
-// MemoryAvailable returns the remaining memory available
 func (c *Computing) MemoryAvailable() float64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.Memory - c.MemoryUsage
 }
 
-// Clone creates a new copy of the current computing unit and returns it as IComputing.
 func (c *Computing) Clone() types.Computing {
-	// Clone each deployed service
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	servicesClone := make([]types.DeployableService, len(c.Services))
 	copy(servicesClone, c.Services)
 
@@ -142,6 +196,7 @@ func (c *Computing) Clone() types.Computing {
 		CpuUsage:    c.CpuUsage,
 		MemoryUsage: c.MemoryUsage,
 		Services:    servicesClone,
+		node:        c.node,
 	}
 }
 

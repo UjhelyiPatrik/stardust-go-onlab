@@ -7,11 +7,14 @@ type DeployableService interface {
 	// GetServiceName returns the name of the service.
 	GetServiceName() string
 
-	// GetCpuUsage returns the current CPU usage of the deployed service.
-	GetCpuUsage() float64
-
 	// GetMemoryUsage returns the current memory usage of the deployed service.
 	GetMemoryUsage() float64
+
+	// GetRequiredCycles returns the total number of CPU cycles required to execute the service.
+	GetRequiredCycles() uint64
+
+	// ExecuteCycles subtracts processed cycles. Returns (isCompleted, actualConsumedCycles)
+	ExecuteCycles(cycles uint64) (bool, uint64)
 
 	// IsDeployed checks if the service has been successfully deployed.
 	IsDeployed() bool

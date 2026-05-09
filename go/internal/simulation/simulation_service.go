@@ -76,63 +76,87 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 	s.running = true
 	s.lock.Unlock()
 
+	// 1. Idő léptetése és deltaT kiszámítása
+	oldTime := s.simTime
 	s.setSimulationTime(nextTime(s.GetSimulationTime()))
+	deltaT := s.simTime.Sub(oldTime).Seconds()
+
 	log.Printf("Simulation time is %s", s.simTime.Format(time.RFC3339))
 
-	// Update positions of all nodes (satellites and ground stations)
+	// Biztonsági kilépés, ha nem telt el idő
+	if deltaT <= 0 {
+		s.running = false
+		return
+	}
+
 	var wg sync.WaitGroup
+
+	// 2. Pozíciók frissítése (Fizikai környezet)
 	for _, n := range s.all {
 		wg.Add(1)
-		go func(n types.Node) {
+		go func(node types.Node) {
 			defer wg.Done()
-			n.UpdatePosition(s.simTime) // Update each node's position
+			node.UpdatePosition(s.simTime)
 		}(n)
 	}
 	wg.Wait()
 
-	// Link updates (ISL and ground links)
-	for _, node := range s.all {
+	// 3. Linkek frissítése (Hálózati topológia)
+	for _, n := range s.all {
 		wg.Add(1)
-		go func(n types.Node) {
+		go func(node types.Node) {
 			defer wg.Done()
 			node.GetLinkNodeProtocol().UpdateLinks()
-		}(node)
+		}(n)
 	}
 	wg.Wait()
 
-	// Update control plane coordinator with new positions and links
+	// 4. CONTROL PLANE FRISSÍTÉSE (Orchestrációs leképezés)
+	// A műholdak hozzárendelése a GS-ekhez
 	coordinator := network.NewControlPlaneCoordinator()
 	coordinator.UpdateMappings(s.GetSatellites(), s.GetGroundStations(), s.simTime)
 
-	// Routing and computation (if enabled)
-	if s.config.UsePreRouteCalc {
-		for _, node := range s.all {
+	// 5. SZÁMÍTÁSI FELADATOK FELDOLGOZÁSA (CPU Duty Cycle)
+	for _, n := range s.all {
+		comp := n.GetComputing()
+		if comp != nil {
 			wg.Add(1)
-			go func(n types.Node) {
+			go func(c types.Computing) {
 				defer wg.Done()
-				n.GetRouter().CalculateRoutingTable()
-			}(node)
+				c.Tick(deltaT)
+			}(comp)
+		}
+	}
+	wg.Wait()
+
+	// 6. Routing táblák frissítése (ha engedélyezett)
+	if s.config.UsePreRouteCalc {
+		for _, n := range s.all {
+			wg.Add(1)
+			go func(node types.Node) {
+				defer wg.Done()
+				node.GetRouter().CalculateRoutingTable()
+			}(n)
 		}
 		wg.Wait()
 	}
 
-	// Execute post-step state plugins
+	// 7. Állapot pluginok futtatása (Környezet)
 	for _, plugin := range s.statePluginRepo.GetAllPlugins() {
 		plugin.PostSimulationStep(s)
 	}
 
-	// Execute post-step simulation plugins
+	// 8. Szimulációs pluginok futtatása (Orchestrátorok, Generátorok, Akkumulátor)
 	for _, plugin := range s.simplugins {
 		if err := plugin.PostSimulationStep(s); err != nil {
 			log.Printf("Plugin %s PostSimulationStep error: %v", plugin.Name(), err)
 		}
 	}
 
+	// 9. Állapot mentése (Precomputed Output)
 	if s.simulationStateSerializer != nil {
 		s.simulationStateSerializer.AddState(s)
 	}
-
-	time.Sleep(1 * time.Second) // Simulate step duration
 
 	s.running = false
 }
