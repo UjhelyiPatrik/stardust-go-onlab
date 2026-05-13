@@ -3,11 +3,15 @@ package network
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 type NetworkService struct{}
+
+// TotalTransmittedBytes tracks the global network traffic across the entire simulation.
+var TotalTransmittedBytes uint64
 
 func NewNetworkService() *NetworkService {
 	return &NetworkService{}
@@ -42,6 +46,11 @@ func (s *NetworkService) Transmit(src, dst types.Node, payload types.Payload) (i
 			}
 		}
 	}
+
+	// Atomically update the global traffic counter
+	hops := uint64(len(path))
+	actualNetworkLoad := payload.SizeBytes() * hops
+	atomic.AddUint64(&TotalTransmittedBytes, actualNetworkLoad)
 
 	// 3. Return the calculated latency
 	return route.Latency(), nil

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/polaris-slo-cloud/stardust-go/configs"
+	analytics "github.com/polaris-slo-cloud/stardust-go/internal/analitics"
 	"github.com/polaris-slo-cloud/stardust-go/internal/computing"
 	"github.com/polaris-slo-cloud/stardust-go/internal/deployment"
 	"github.com/polaris-slo-cloud/stardust-go/internal/ground"
@@ -209,6 +210,14 @@ func startSimulation(simulationConfig configs.SimulationConfig, islConfigString 
 	// Step 4.3: Initialize constellation loader and register TLE loader
 	constellationLoader := satellite.NewSatelliteConstellationLoader()
 	constellationLoader.RegisterDataSourceLoader("tle", tleLoader)
+
+	// Step 6: Initialize telemetry plugin for analytics
+	telemetryPlugin := analytics.NewTelemetryExporterPlugin(
+		orchestrationStrategyString, // This should hold the strategy name e.g. "coldest", "dark"
+		"./results/analytics",       // Output directory
+		simPlugins,
+	)
+	simPlugins = append(simPlugins, telemetryPlugin)
 
 	// Step 5: Initialize simulation service
 	simService := simulation.NewSimulationService(&simulationConfig, routerBuilder, computingBuilder, simPlugins, types.NewStatePluginRepository(statePlugins), simulationStateOutputFile)

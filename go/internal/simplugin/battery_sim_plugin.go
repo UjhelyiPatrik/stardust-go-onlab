@@ -340,3 +340,12 @@ func (p *BatterySimPlugin) GetAllStates() map[string]*types.SatellitePhysicalSta
 func (p *BatterySimPlugin) Reset() {
 	p.batteryStates = make(map[string]*types.SatellitePhysicalState)
 }
+
+// --- Integration with TelemetryExporterPlugin ---
+func (p *BatterySimPlugin) GetNetEnergyChange(node types.Node) (float64, error) {
+	state, err := p.GetBatteryState(node)
+	if err != nil {
+		return 0, err
+	}
+	return state.PowerGeneration - state.PowerConsumption, nil
+}

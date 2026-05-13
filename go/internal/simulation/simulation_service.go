@@ -76,14 +76,14 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 	s.running = true
 	s.lock.Unlock()
 
-	// 1. Idő léptetése és deltaT kiszámítása
+	// 1. Stepping time forward, calculate deltaT
 	oldTime := s.simTime
 	s.setSimulationTime(nextTime(s.GetSimulationTime()))
 	deltaT := s.simTime.Sub(oldTime).Seconds()
 
 	log.Printf("Simulation time is %s", s.simTime.Format(time.RFC3339))
 
-	// Biztonsági kilépés, ha nem telt el idő
+	// Safety exit if no time has elapsed
 	if deltaT <= 0 {
 		s.running = false
 		return
@@ -91,7 +91,7 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 
 	var wg sync.WaitGroup
 
-	// 2. Pozíciók frissítése (Fizikai környezet)
+	// 2. Update node positions (Orbital mechanics)
 	for _, n := range s.all {
 		wg.Add(1)
 		go func(node types.Node) {
@@ -101,7 +101,7 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 	}
 	wg.Wait()
 
-	// 3. Linkek frissítése (Hálózati topológia)
+	// 3. Update links (Network topology changes)
 	for _, n := range s.all {
 		wg.Add(1)
 		go func(node types.Node) {
@@ -111,12 +111,12 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 	}
 	wg.Wait()
 
-	// 4. CONTROL PLANE FRISSÍTÉSE (Orchestrációs leképezés)
-	// A műholdak hozzárendelése a GS-ekhez
+	// 4. CONTROL PLANE UPDATE (Orchestrator mapping)
+	// Assign satellites to ground stations based on current positions and visibility
 	coordinator := network.NewControlPlaneCoordinator()
 	coordinator.UpdateMappings(s.GetSatellites(), s.GetGroundStations(), s.simTime)
 
-	// 5. SZÁMÍTÁSI FELADATOK FELDOLGOZÁSA (CPU Duty Cycle)
+	// 5. COMPUTATION TASK PROCESSING (CPU Duty Cycle)
 	for _, n := range s.all {
 		comp := n.GetComputing()
 		if comp != nil {
@@ -129,7 +129,7 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 	}
 	wg.Wait()
 
-	// 6. Routing táblák frissítése (ha engedélyezett)
+	// 6. Routing tables update (if enabled)
 	if s.config.UsePreRouteCalc {
 		for _, n := range s.all {
 			wg.Add(1)
@@ -141,19 +141,19 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 		wg.Wait()
 	}
 
-	// 7. Állapot pluginok futtatása (Környezet)
+	// 7. Running state plugins
 	for _, plugin := range s.statePluginRepo.GetAllPlugins() {
 		plugin.PostSimulationStep(s)
 	}
 
-	// 8. Szimulációs pluginok futtatása (Orchestrátorok, Generátorok, Akkumulátor)
+	// 8. Simulation plugins run (Orchestrators, Generators, Accumulators)
 	for _, plugin := range s.simplugins {
 		if err := plugin.PostSimulationStep(s); err != nil {
 			log.Printf("Plugin %s PostSimulationStep error: %v", plugin.Name(), err)
 		}
 	}
 
-	// 9. Állapot mentése (Precomputed Output)
+	// 9. State serialization (Precomputed Output)
 	if s.simulationStateSerializer != nil {
 		s.simulationStateSerializer.AddState(s)
 	}

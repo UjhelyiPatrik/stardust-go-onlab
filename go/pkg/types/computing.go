@@ -32,6 +32,9 @@ type Computing interface {
 	// CpuAvailable returns the remaining CPU available
 	CpuAvailable() float64
 
+	// GetCpuUtilization returns the current CPU utilization as a percentage (0.0 to 100.0)
+	GetCpuUtilization() float64
+
 	// MemoryAvailable returns the remaining memory available
 	MemoryAvailable() float64
 

@@ -203,3 +203,14 @@ func (c *Computing) Clone() types.Computing {
 func (c *Computing) GetComputingType() types.ComputingType {
 	return c.Type
 }
+
+// GetCpuUtilization returns the CPU usage as a percentage (0.0 to 100.0).
+func (c *Computing) GetCpuUtilization() float64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.Cpu == 0 {
+		return 0.0
+	}
+	return (c.CpuUsage / c.Cpu) * 100.0
+}
