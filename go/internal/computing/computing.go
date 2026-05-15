@@ -95,8 +95,8 @@ func (c *Computing) Tick(deltaT float64) {
 		return
 	}
 
-	// Assumption: 1 unit of CPU capacity = 1 GigaCycle/sec (1,000,000,000 cycles).
-	availableCyclesPerSec := uint64(c.Cpu * 1000000000)
+	// Change GHz to Cycles: availableCyclesPerSec = GHz * 1e9 (cycles per second)
+	availableCyclesPerSec := uint64(c.Cpu * 1e9)
 	totalAvailableCycles := uint64(float64(availableCyclesPerSec) * deltaT)
 
 	if totalAvailableCycles == 0 {

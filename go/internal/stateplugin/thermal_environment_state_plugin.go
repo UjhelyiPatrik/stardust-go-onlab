@@ -186,34 +186,18 @@ func (p *ThermalEnvironmentStatePlugin) calculateOrbitalPosition(pos types.Vecto
 		EclipseDepth: 0,
 	}
 
-	// ARCHITECTURAL FIX: Cylindrical Shadow Model
+	//Cylindrical Shadow Model (It can be further developed to include penumbra calculations, but this is a good starting point for eclipse state)
 	// A satellite is only in eclipse if it is BEHIND the Earth relative to the sun (dotProduct < 0)
 	if dotProduct < 0 {
 		// Calculate the perpendicular distance squared from the Earth-Sun axis
 		// Pythagorean theorem: perpendicular^2 = hypotenuse^2 - adjacent^2
 		distToAxisSq := distSq - (dotProduct * dotProduct)
-		earthRadiusSq := p.earthRadius * p.earthRadius
+		earthRadiusSq := p.earthRadius * p.earthRadius * 1.01 // Add 1% margin to account for atmospheric effects and penumbra
 
 		// If the satellite is further from the axis than the Earth's radius, it is in sunlight
 		if distToAxisSq < earthRadiusSq {
-			// Satellite is physically within the cylinder of Earth's shadow
-
-			// Calculate penumbra/umbra transitions
-			earthAngularRadius := math.Asin(p.earthRadius / dist)
-			sunAngularRadius := 0.00465 // Approx 0.27 degrees in radians
-			shadowAngle := math.Acos(-normDot)
-
-			if shadowAngle > earthAngularRadius+sunAngularRadius {
-				orbitalPos.InEclipse = false
-			} else if shadowAngle > earthAngularRadius-sunAngularRadius {
-				// Penumbra (Partial Eclipse)
-				orbitalPos.InEclipse = false // Treat as sunlight, but with reduced exposure
-				orbitalPos.EclipseDepth = 1.0 - (shadowAngle-earthAngularRadius+sunAngularRadius)/(2*sunAngularRadius)
-			} else {
-				// Umbra (Full Eclipse)
-				orbitalPos.InEclipse = true
-				orbitalPos.EclipseDepth = 1.0
-			}
+			orbitalPos.InEclipse = true
+			orbitalPos.EclipseDepth = 1.0
 		}
 	}
 

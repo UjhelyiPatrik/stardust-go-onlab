@@ -23,20 +23,20 @@ thermal:
   
   # Large satellite default properties
   largeSat:
-    thermalMass: 50000.0        # J/K
-    surfaceArea: 2.0            # m²
-    absorptivity: 0.85
-    emissivity: 0.90
-    maxTemperature: 323.15      # K (50°C)
+    thermalMass: 650000.0        # J/K
+    surfaceArea: 7.5            # m²
+    absorptivity: 0.40
+    emissivity: 0.88
+    maxTemperature: 358.15      # K (50°C)
     minTemperature: 243.15      # K (-30°C)
   
   # Default fallback
   default:
-    thermalMass: 50000.0        # J/K
-    surfaceArea: 2.0            # m²
+    thermalMass: 650000.0        # J/K
+    surfaceArea: 7.5            # m²
     absorptivity: 0.85
     emissivity: 0.90
-    maxTemperature: 323.15      # K (50°C)
+    maxTemperature: 358.15      # K (50°C)
     minTemperature: 243.15      # K (-30°C)
 
 # Battery properties for different satellite types

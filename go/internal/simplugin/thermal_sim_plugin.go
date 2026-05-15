@@ -52,6 +52,18 @@ func (p *ThermalSimPlugin) SetThermalProperties(nodeType string, props types.The
 	p.thermalProps[nodeType] = props
 }
 
+func (p *ThermalSimPlugin) GetThermalProperties(node types.Node) types.ThermalProperties {
+	if props, ok := p.thermalProps[node.GetName()]; ok {
+		return props
+	}
+
+	if props, ok := p.thermalProps["default"]; ok {
+		return props
+	}
+
+	return types.DefaultThermalProperties()
+}
+
 func (p *ThermalSimPlugin) SetTimeStep(dt float64) {
 	p.timeStep = dt
 }

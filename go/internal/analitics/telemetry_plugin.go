@@ -134,9 +134,22 @@ func (p *TelemetryExporterPlugin) PostSimulationStep(sim types.SimulationControl
 		// 3. Sunlight State (Eclipse check)
 		sunlightState := "Sunlight"
 		if sunPlugin != nil {
-			// A környezeti plugin alapján (ha eklipszisben van)
-			if sunPlugin.GetSunlightExposure(sat) < 0.1 { // Threshold for eclipse
-				sunlightState = "Eclipse"
+			// Típus-konverzióval kikényszerítjük a ThermalEnvironmentStatePlugin-t,
+			// mert ott már ki van számolva a precíz hengeres árnyékmodell.
+			if thermalEnv, ok := sunPlugin.(*stateplugin.ThermalEnvironmentStatePlugin); ok {
+				if thermalEnv.IsEclipse(sat) {
+					sunlightState = "Eclipse"
+				}
+			} else if eclipseChecker, ok := sunPlugin.(interface{ IsEclipse(types.Node) bool }); ok {
+				// Biztonsági tartalék, ha valaki az interfészhez is hozzáadta az IsEclipse-t
+				if eclipseChecker.IsEclipse(sat) {
+					sunlightState = "Eclipse"
+				}
+			} else {
+				// Végső fallback (régi, pontatlan módszer)
+				if sunPlugin.GetSunlightExposure(sat) == 0.0 {
+					sunlightState = "Eclipse"
+				}
 			}
 		}
 

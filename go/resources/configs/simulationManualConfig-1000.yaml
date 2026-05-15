@@ -1,6 +1,6 @@
 StepInterval: -1
 StepMultiplier: 60
-StepCount: 300
+StepCount: 1000
 SatelliteDataSource: starlink_1000.tle
 SatelliteDataSourceType: tle
 GroundStationDataSource: ground_stations.yml

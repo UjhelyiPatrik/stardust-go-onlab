@@ -34,8 +34,8 @@ func DefaultThermalProperties() ThermalProperties {
 		SurfaceArea:    0.14,   // m²
 		Absorptivity:   0.92,   // typical for solar panels
 		Emissivity:     0.85,   // typical for black paint
-		MaxTemperature: 333.15, // 60°C in Kelvin
-		MinTemperature: 253.15, // -20°C in Kelvin
+		MaxTemperature: 358.15, // 85°C in Kelvin
+		MinTemperature: 243.15, // -30°C in Kelvin
 	}
 }
 

@@ -30,6 +30,8 @@ func GetStrategy(name string) OrchestrationStrategy {
 		return &DarkStrategy{}
 	case "anywhere":
 		return &AnywhereStrategy{}
+	case "fastest_cooling":
+		return &FastestCoolingStrategy{}
 	default:
 		log.Printf("[WARN] Unknown orchestrator strategy '%s', falling back to 'anywhere'", name)
 		return &AnywhereStrategy{}

@@ -19,9 +19,18 @@ type WorkloadGeneratorPlugin struct {
 
 // NewWorkloadGeneratorPlugin initializes the plugin.
 func NewWorkloadGeneratorPlugin(config *configs.WorkloadConfig) *WorkloadGeneratorPlugin {
+	var seed int64
+
+	if config.Seed != 0 {
+		// Deterministic randomization for reproducibility when a seed is provided
+		seed = config.Seed
+	} else {
+		// Real randomization, if no seed is provided
+		seed = time.Now().UnixNano()
+	}
 	return &WorkloadGeneratorPlugin{
 		config: config,
-		rng:    rand.New(rand.NewSource(time.Now().UnixNano())),
+		rng:    rand.New(rand.NewSource(seed)),
 	}
 }
 

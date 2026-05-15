@@ -10,4 +10,5 @@ type WorkloadConfig struct {
 	MaxMemory       float64 `yaml:"maxMemory"`
 	MinSizeBytes    uint64  `yaml:"minSizeBytes"`
 	MaxSizeBytes    uint64  `yaml:"maxSizeBytes"`
+	Seed            int64   `yaml:"seed"`
 }
