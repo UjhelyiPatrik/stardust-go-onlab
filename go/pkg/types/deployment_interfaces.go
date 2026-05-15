@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 // IDeployedService defines the structure for a deployed service.
 type DeployableService interface {
 	Payload
@@ -24,4 +26,19 @@ type DeployableService interface {
 
 	// Remove stops the service and removes the deployment.
 	Remove() error
+
+	GetOriginGS() Node
+
+	GetCreatedAt() time.Time
+
+	CreateResult(consumedCapacity uint64) TaskResult
+}
+
+// TaskResult represents the completed outcome of a DeployableService
+type TaskResult interface {
+	Payload
+	GetServiceName() string
+	GetOriginGS() Node
+	GetCreatedAt() time.Time
+	GetConsumedCapacity() uint64
 }

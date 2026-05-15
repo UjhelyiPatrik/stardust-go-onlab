@@ -180,7 +180,7 @@ type SatellitePhysicalState struct {
 func NewSatellitePhysicalState(nodeName string) *SatellitePhysicalState {
 	return &SatellitePhysicalState{
 		NodeName:          nodeName,
-		Temperature:       293.15, // 20°C in Kelvin
+		Temperature:       323.15, // 50°C in Kelvin
 		SOC:               0.8,    // 80% initial charge
 		PowerConsumption:  0,
 		PowerGeneration:   0,

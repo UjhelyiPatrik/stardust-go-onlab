@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
+	"github.com/polaris-slo-cloud/stardust-go/internal/metrics"
+	"github.com/polaris-slo-cloud/stardust-go/internal/network"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
@@ -86,14 +89,7 @@ func (c *Computing) RemoveDeploymentAsync(service types.DeployableService) error
 
 // Tick processes the required clock cycles for all running tasks based on elapsed time.
 // It sets the precise CpuUsage fraction (Duty Cycle) for the thermal and battery plugins.
-func (c *Computing) Tick(deltaT float64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if len(c.Services) == 0 {
-		c.CpuUsage = 0.0 // True Idle
-		return
-	}
+func (c *Computing) Tick(deltaT float64, currentTime time.Time) {
 
 	// Change GHz to Cycles: availableCyclesPerSec = GHz * 1e9 (cycles per second)
 	availableCyclesPerSec := uint64(c.Cpu * 1e9)
@@ -103,40 +99,65 @@ func (c *Computing) Tick(deltaT float64) {
 		return
 	}
 
-	// Fair Scheduling: Divide available cycles equally
-	cyclesPerTask := totalAvailableCycles / uint64(len(c.Services))
-
 	var remainingServices []types.DeployableService
+	var completedResults []types.TaskResult // ÚJ: Ide gyűjtjük a kész feladatokat
 	var totalConsumedCycles uint64 = 0
 
-	for _, service := range c.Services {
-		isCompleted, consumed := service.ExecuteCycles(cyclesPerTask)
-		totalConsumedCycles += consumed
+	func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 
-		if isCompleted {
-			c.MemoryUsage -= service.GetMemoryUsage()
-			nodeName := "Unknown"
-			if c.node != nil {
-				nodeName = c.node.GetName()
+		if len(c.Services) == 0 {
+			c.CpuUsage = 0.0
+			return
+		}
+
+		cyclesPerTask := totalAvailableCycles / uint64(len(c.Services))
+
+		for _, service := range c.Services {
+			isCompleted, consumed := service.ExecuteCycles(cyclesPerTask)
+			totalConsumedCycles += consumed
+
+			if isCompleted {
+				c.MemoryUsage -= service.GetMemoryUsage()
+				completedResults = append(completedResults, service.CreateResult(service.GetRequiredCycles()))
+			} else {
+				remainingServices = append(remainingServices, service)
 			}
-			log.Printf("[SUCCESS] Computing Node %s completed task: %s (Consumed %d cycles)", nodeName, service.GetServiceName(), consumed)
-		} else {
-			remainingServices = append(remainingServices, service)
+		}
+
+		c.Services = remainingServices
+
+		utilization := float64(totalConsumedCycles) / float64(totalAvailableCycles)
+		if utilization > 1.0 {
+			utilization = 1.0
+		}
+		c.CpuUsage = c.Cpu * utilization
+	}()
+
+	// --- HÁLÓZATI MŰVELETEK ÉS TELEMETRIA A LOCKON KÍVÜL ---
+
+	if len(completedResults) > 0 {
+		netService := network.NewNetworkService()
+
+		for _, result := range completedResults {
+			latency := 0
+			if c.node != nil && result.GetOriginGS() != nil {
+				// Ez a lassú művelet (útvonalkeresés) most már nem blokkolja a memóriát!
+				l, err := netService.Transmit(c.node, result.GetOriginGS(), result)
+				if err == nil {
+					latency = l
+				}
+			}
+
+			// Telemetria rögzítése
+			metrics.RecordTaskCompletion(result.GetCreatedAt(), time.Now(), latency, result.GetConsumedCapacity())
+
+			if c.node != nil {
+				log.Printf("[SUCCESS] Computing Node %s completed task: %s. Latency: %d", c.node.GetName(), result.GetServiceName(), latency)
+			}
 		}
 	}
-
-	c.Services = remainingServices
-
-	// DYNAMIC DUTY CYCLE CALCULATION
-	// Represents the exact fraction of CPU utilized during this Tick (e.g. 1.66% instead of 100%)
-	utilization := float64(totalConsumedCycles) / float64(totalAvailableCycles)
-
-	// Cap at 1.0 just for floating point safety
-	if utilization > 1.0 {
-		utilization = 1.0
-	}
-
-	c.CpuUsage = c.Cpu * utilization
 }
 
 func (c *Computing) CanPlace(service types.DeployableService) bool {

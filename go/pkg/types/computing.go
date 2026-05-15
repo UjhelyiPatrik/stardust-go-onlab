@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Computing is an interface for computing resources, including managing services, available resources, and service placement.
@@ -15,7 +16,7 @@ type Computing interface {
 	GetComputingType() ComputingType
 
 	// Tick processes the required clock cycles based on elapsed time (deltaT in seconds).
-	Tick(deltaT float64)
+	Tick(deltaT float64, currentTime time.Time)
 
 	// TryPlaceDeploymentAsync tries to place a service on this computing unit
 	TryPlaceDeploymentAsync(service DeployableService) (bool, error)

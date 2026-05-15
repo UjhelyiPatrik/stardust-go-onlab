@@ -64,14 +64,16 @@ func (p *WorkloadGeneratorPlugin) PostSimulationStep(sim types.SimulationControl
 
 		taskName := fmt.Sprintf("Task-%d-%d", sim.GetSimulationTime().Unix(), i)
 
-		// 3. Create the deployable service (which now acts as a types.Payload)
-		task, err := NewDeployableService(taskName, megaCycles, memory, sizeBytes)
+		// 3. Select a random Ground Station
+		randomGS := gss[p.rng.Intn(len(gss))]
+
+		// 4. Create the deployable service (which now acts as a types.Payload)
+		task, err := NewDeployableService(taskName, megaCycles, memory, sizeBytes, randomGS, sim.GetSimulationTime())
 		if err != nil {
-			continue // Skip on invalid parameters
+			continue
 		}
 
-		// 4. Select a random Ground Station and enqueue the task
-		randomGS := gss[p.rng.Intn(len(gss))]
+		// 5. Enqueue the task to the selected Ground Station
 		randomGS.EnqueueTask(task)
 	}
 

@@ -2,13 +2,13 @@ package simulation
 
 import (
 	"log"
-	"sync"
 	"time"
 
 	"github.com/polaris-slo-cloud/stardust-go/configs"
 	"github.com/polaris-slo-cloud/stardust-go/internal/computing"
 	"github.com/polaris-slo-cloud/stardust-go/internal/network"
 	"github.com/polaris-slo-cloud/stardust-go/internal/routing"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/helper"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
@@ -89,27 +89,15 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 		return
 	}
 
-	var wg sync.WaitGroup
-
 	// 2. Update node positions (Orbital mechanics)
-	for _, n := range s.all {
-		wg.Add(1)
-		go func(node types.Node) {
-			defer wg.Done()
-			node.UpdatePosition(s.simTime)
-		}(n)
-	}
-	wg.Wait()
+	helper.ParallelFor(s.all, func(n types.Node) {
+		n.UpdatePosition(s.simTime)
+	})
 
 	// 3. Update links (Network topology changes)
-	for _, n := range s.all {
-		wg.Add(1)
-		go func(node types.Node) {
-			defer wg.Done()
-			node.GetLinkNodeProtocol().UpdateLinks()
-		}(n)
-	}
-	wg.Wait()
+	helper.ParallelFor(s.all, func(n types.Node) {
+		n.GetLinkNodeProtocol().UpdateLinks()
+	})
 
 	// 4. CONTROL PLANE UPDATE (Orchestrator mapping)
 	// Assign satellites to ground stations based on current positions and visibility
@@ -117,28 +105,17 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 	coordinator.UpdateMappings(s.GetSatellites(), s.GetGroundStations(), s.simTime)
 
 	// 5. COMPUTATION TASK PROCESSING (CPU Duty Cycle)
-	for _, n := range s.all {
-		comp := n.GetComputing()
-		if comp != nil {
-			wg.Add(1)
-			go func(c types.Computing) {
-				defer wg.Done()
-				c.Tick(deltaT)
-			}(comp)
+	helper.ParallelFor(s.all, func(n types.Node) {
+		if comp := n.GetComputing(); comp != nil {
+			comp.Tick(deltaT, s.simTime)
 		}
-	}
-	wg.Wait()
+	})
 
 	// 6. Routing tables update (if enabled)
 	if s.config.UsePreRouteCalc {
-		for _, n := range s.all {
-			wg.Add(1)
-			go func(node types.Node) {
-				defer wg.Done()
-				node.GetRouter().CalculateRoutingTable()
-			}(n)
-		}
-		wg.Wait()
+		helper.ParallelFor(s.all, func(n types.Node) {
+			n.GetRouter().CalculateRoutingTable()
+		})
 	}
 
 	// 7. Running state plugins

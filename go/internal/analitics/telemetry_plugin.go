@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync/atomic"
 
+	"github.com/polaris-slo-cloud/stardust-go/internal/metrics"
 	"github.com/polaris-slo-cloud/stardust-go/internal/network"
 	"github.com/polaris-slo-cloud/stardust-go/internal/simplugin"
 	"github.com/polaris-slo-cloud/stardust-go/internal/stateplugin"
@@ -24,6 +25,8 @@ type TelemetryExporterPlugin struct {
 	nodeWriter    *csv.Writer
 	networkFile   *os.File
 	networkWriter *csv.Writer
+	compFile      *os.File
+	compWriter    *csv.Writer
 	thermalPlugin *simplugin.ThermalSimPlugin
 	batteryPlugin *simplugin.BatterySimPlugin
 
@@ -60,12 +63,26 @@ func NewTelemetryExporterPlugin(strategyName string, outDir string, physicalPlug
 	})
 	netWriter.Flush()
 
+	// 3. COMPUTING TELEMETRY FILE
+	compFileName := fmt.Sprintf("telemetry_computing_%s.csv", strategyName)
+	compFile, err := os.Create(filepath.Join(outDir, compFileName))
+	if err != nil {
+		log.Fatalf("Failed to create comp telemetry file: %v", err)
+	}
+	compWriter := csv.NewWriter(compFile)
+	compWriter.Write([]string{
+		"Time", "Strategy", "TotalCompletedTasks", "TotalConsumedMegaCycles", "AvgTurnaroundTime_Ms",
+	})
+	compWriter.Flush()
+
 	plugin := &TelemetryExporterPlugin{
 		strategyName:  strategyName,
 		nodeFile:      nodeFile,
 		nodeWriter:    nodeWriter,
 		networkFile:   netFile,
 		networkWriter: netWriter,
+		compFile:      compFile,
+		compWriter:    compWriter,
 	}
 
 	// Resolve the physical plugins to read their internal states
@@ -184,10 +201,28 @@ func (p *TelemetryExporterPlugin) PostSimulationStep(sim types.SimulationControl
 		strconv.FormatUint(totalCumulativeTraffic, 10),
 	})
 
-	// Kiürítés a lemezre, hogy élőben (valós időben) lehessen követni Pythonból
+	// Getting computing metrics from the global metrics package
+	completedTasks := atomic.LoadUint64(&metrics.TotalCompletedTasks)
+	consumedCycles := atomic.LoadUint64(&metrics.TotalConsumedCycles)
+	totalTurnaround := atomic.LoadUint64(&metrics.TotalTurnaroundMs)
+
+	avgTurnaround := 0.0
+	if completedTasks > 0 {
+		avgTurnaround = float64(totalTurnaround) / float64(completedTasks)
+	}
+
+	p.compWriter.Write([]string{
+		simTime,
+		p.strategyName,
+		strconv.FormatUint(completedTasks, 10),
+		strconv.FormatUint(consumedCycles/1000000, 10), // Convert to MegaCycles for readability
+		strconv.FormatFloat(avgTurnaround, 'f', 2, 64),
+	})
+
+	// Flush all writers to ensure data is written to disk
 	p.nodeWriter.Flush()
 	p.networkWriter.Flush()
-
+	p.compWriter.Flush() // ÚJ
 	return nil
 }
 

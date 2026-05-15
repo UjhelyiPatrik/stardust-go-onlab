@@ -2,11 +2,11 @@ package deployment
 
 import (
 	"log"
-	"sync"
 
 	"github.com/polaris-slo-cloud/stardust-go/internal/network"
 	"github.com/polaris-slo-cloud/stardust-go/internal/simplugin"
 	"github.com/polaris-slo-cloud/stardust-go/internal/stateplugin"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/helper"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
@@ -63,21 +63,9 @@ func (p *GroundStationOrchestratorPlugin) PostSimulationStep(sim types.Simulatio
 	// CONCURRENCY OPTIMIZATION
 	// Execute each Ground Station's orchestration in a separate Goroutine.
 	// ==========================================
-	var wg sync.WaitGroup
-
-	for _, gs := range gss {
-		wg.Add(1)
-
-		// Spawn a new lightweight thread (Goroutine) for each Ground Station
-		go func(groundStation types.GroundStation) {
-			defer wg.Done()
-			// Each GS processes its own disjoint subset of satellites
-			p.processGroundStation(groundStation, sunPlugin)
-		}(gs) // We pass 'gs' as a parameter to avoid loop-variable capture issues in Go
-	}
-
-	// Wait until ALL Ground Stations have finished their orchestration
-	wg.Wait()
+	helper.ParallelFor(gss, func(gs types.GroundStation) {
+		p.processGroundStation(gs, sunPlugin)
+	})
 
 	return nil
 }
