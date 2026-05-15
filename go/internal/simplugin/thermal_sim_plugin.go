@@ -146,7 +146,7 @@ func (p *ThermalSimPlugin) updateThermalState(node types.Node, simTime time.Time
 	if !ok {
 		state = types.NewSatellitePhysicalState(nodeName)
 		state.Timestamp = simTime
-		state.Temperature = 293.15 // Initialize to 20°C in Kelvin
+		state.Temperature = 323.15 // Initialize to 50°C in Kelvin
 		p.thermalStates[nodeName] = state
 		return
 	}

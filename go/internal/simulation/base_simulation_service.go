@@ -94,8 +94,6 @@ func (s *BaseSimulationService) StartAutorun() <-chan struct{} {
 			s.runSimulationStep(func(prev time.Time) time.Time {
 				return prev.Add(time.Duration(s.config.StepMultiplier) * time.Second)
 			})
-
-			time.Sleep(time.Duration(s.config.StepInterval) * time.Millisecond)
 			s.stepCount++
 		}
 		close(done) // closed when simulation loop exits

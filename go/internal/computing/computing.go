@@ -151,7 +151,7 @@ func (c *Computing) Tick(deltaT float64, currentTime time.Time) {
 			}
 
 			// Telemetria rögzítése
-			metrics.RecordTaskCompletion(result.GetCreatedAt(), time.Now(), latency, result.GetConsumedCapacity())
+			metrics.RecordTaskCompletion(result.GetCreatedAt(), currentTime, latency, result.GetConsumedCapacity())
 
 			if c.node != nil {
 				log.Printf("[SUCCESS] Computing Node %s completed task: %s. Latency: %d", c.node.GetName(), result.GetServiceName(), latency)

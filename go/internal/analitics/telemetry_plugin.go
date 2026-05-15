@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"sync/atomic"
 
 	"github.com/polaris-slo-cloud/stardust-go/internal/metrics"
@@ -17,6 +18,11 @@ import (
 )
 
 var _ types.SimulationPlugin = (*TelemetryExporterPlugin)(nil)
+
+type TelemetryRecord struct {
+	Type string
+	Data []string
+}
 
 // TelemetryExporterPlugin gathers raw metrics every tick and writes them to a CSV file.
 type TelemetryExporterPlugin struct {
@@ -29,6 +35,8 @@ type TelemetryExporterPlugin struct {
 	compWriter    *csv.Writer
 	thermalPlugin *simplugin.ThermalSimPlugin
 	batteryPlugin *simplugin.BatterySimPlugin
+	recordChan    chan TelemetryRecord
+	writerWg      sync.WaitGroup
 
 	previousTraffic uint64 // Tracks cumulative traffic from the previous tick
 }
@@ -83,6 +91,8 @@ func NewTelemetryExporterPlugin(strategyName string, outDir string, physicalPlug
 		networkWriter: netWriter,
 		compFile:      compFile,
 		compWriter:    compWriter,
+		recordChan:    make(chan TelemetryRecord, 10000), // Buffered channel for async writing
+		writerWg:      sync.WaitGroup{},
 	}
 
 	// Resolve the physical plugins to read their internal states
@@ -94,6 +104,9 @@ func NewTelemetryExporterPlugin(strategyName string, outDir string, physicalPlug
 			plugin.batteryPlugin = bp
 		}
 	}
+
+	plugin.writerWg.Add(1)
+	go plugin.startWriter()
 
 	return plugin
 }
@@ -174,18 +187,18 @@ func (p *TelemetryExporterPlugin) PostSimulationStep(sim types.SimulationControl
 		cpuPercent := comp.GetCpuUtilization()
 		activeTasks := len(comp.GetServices())
 
-		// Write the row
-		p.nodeWriter.Write([]string{
-			simTime,
-			p.strategyName,
-			sat.GetName(),
-			sunlightState,
+		data := []string{
+			simTime, p.strategyName, sat.GetName(), sunlightState,
 			strconv.FormatFloat(temp, 'f', 2, 64),
 			strconv.FormatFloat(soc, 'f', 2, 64),
 			strconv.FormatFloat(cpuPercent, 'f', 2, 64),
 			strconv.Itoa(activeTasks),
 			strconv.FormatFloat(netEnergy, 'f', 2, 64),
-		})
+		}
+
+		// BEKÜLDÉS A CSATORNÁBA (Írás helyett)
+		p.recordChan <- TelemetryRecord{Type: "node", Data: data}
+
 	}
 
 	totalCumulativeTraffic := atomic.LoadUint64(&network.TotalTransmittedBytes)
@@ -193,13 +206,10 @@ func (p *TelemetryExporterPlugin) PostSimulationStep(sim types.SimulationControl
 	stepTraffic := totalCumulativeTraffic - p.previousTraffic
 	p.previousTraffic = totalCumulativeTraffic
 
-	// Sor kiírása a Hálózat CSV-be
-	p.networkWriter.Write([]string{
-		simTime,
-		p.strategyName,
-		strconv.FormatUint(stepTraffic, 10),
-		strconv.FormatUint(totalCumulativeTraffic, 10),
-	})
+	p.recordChan <- TelemetryRecord{
+		Type: "net",
+		Data: []string{simTime, p.strategyName, strconv.FormatUint(stepTraffic, 10), strconv.FormatUint(totalCumulativeTraffic, 10)},
+	}
 
 	// Getting computing metrics from the global metrics package
 	completedTasks := atomic.LoadUint64(&metrics.TotalCompletedTasks)
@@ -211,23 +221,37 @@ func (p *TelemetryExporterPlugin) PostSimulationStep(sim types.SimulationControl
 		avgTurnaround = float64(totalTurnaround) / float64(completedTasks)
 	}
 
-	p.compWriter.Write([]string{
-		simTime,
-		p.strategyName,
-		strconv.FormatUint(completedTasks, 10),
-		strconv.FormatUint(consumedCycles/1000000, 10), // Convert to MegaCycles for readability
-		strconv.FormatFloat(avgTurnaround, 'f', 2, 64),
-	})
+	p.recordChan <- TelemetryRecord{
+		Type: "comp",
+		Data: []string{simTime, p.strategyName, strconv.FormatUint(completedTasks, 10), strconv.FormatUint(consumedCycles/1000000, 10), strconv.FormatFloat(avgTurnaround, 'f', 2, 64)},
+	}
 
-	// Flush all writers to ensure data is written to disk
-	p.nodeWriter.Flush()
-	p.networkWriter.Flush()
-	p.compWriter.Flush() // ÚJ
 	return nil
+}
+
+func (p *TelemetryExporterPlugin) startWriter() {
+
+	defer p.writerWg.Done()
+
+	for record := range p.recordChan {
+		switch record.Type {
+		case "node":
+			p.nodeWriter.Write(record.Data)
+		case "net":
+			p.networkWriter.Write(record.Data)
+		case "comp":
+			p.compWriter.Write(record.Data)
+		}
+	}
 }
 
 // Close should be called at the end of the simulation to release file handles.
 func (p *TelemetryExporterPlugin) Close() {
+
+	close(p.recordChan)
+
+	p.writerWg.Wait()
+
 	if p.nodeWriter != nil {
 		p.nodeWriter.Flush()
 		p.nodeFile.Close()
@@ -235,5 +259,9 @@ func (p *TelemetryExporterPlugin) Close() {
 	if p.networkWriter != nil {
 		p.networkWriter.Flush()
 		p.networkFile.Close()
+	}
+	if p.compWriter != nil {
+		p.compWriter.Flush()
+		p.compFile.Close()
 	}
 }
