@@ -16,6 +16,17 @@ func (s *ColdestStrategy) Evaluate(source types.Node, target types.Satellite, ta
 		return -1.0
 	}
 
+	//check the battery plugin and if the satellite is already too low on battery, exclude it.
+	if batteryPlugin != nil {
+		soc, err := batteryPlugin.GetSOC(target)
+		if err != nil {
+			return -1.0
+		}
+		if soc < 0.8 {
+			return -1.0
+		}
+	}
+
 	temp, err := thermalPlugin.GetTemperature(target)
 	if err != nil {
 		//log that temperature could not be retrieved, cannot evaluate

@@ -92,17 +92,8 @@ func (p *GroundStationOrchestratorPlugin) processGroundStation(gs types.GroundSt
 			continue
 		}
 
-		evictionReason := ""
 		isCritical := false
-
-		if p.thermalPlugin != nil && p.thermalPlugin.IsOverheating(sat) {
-			isCritical = true
-			evictionReason = "THERMAL_OVERLOAD"
-		}
-		if !isCritical && p.batteryPlugin != nil && p.batteryPlugin.IsCritical(sat) {
-			isCritical = true
-			evictionReason = "BATTERY_CRITICAL"
-		}
+		evictionReason := "NONE"
 
 		// Strictly environmental health-check (Task is nil)
 		if !isCritical {
@@ -121,7 +112,6 @@ func (p *GroundStationOrchestratorPlugin) processGroundStation(gs types.GroundSt
 					if err == nil {
 						comp.RemoveDeploymentAsync(task)
 						bestSat.GetComputing().TryPlaceDeploymentAsync(task)
-						// BŐVÍTETT LOGOLÁS
 						log.Printf("[Eviction] GS %s migrated %s from %s to %s (Reason: %s)", gs.GetName(), task.GetServiceName(), sat.GetName(), bestSat.GetName(), evictionReason)
 					}
 				}

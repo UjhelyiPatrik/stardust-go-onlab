@@ -116,8 +116,8 @@ func (c *PhysicalConfig) setDefaults() {
 			SurfaceArea:    0.14,
 			Absorptivity:   0.92,
 			Emissivity:     0.85,
-			MaxTemperature: 333.15,
-			MinTemperature: 253.15,
+			MaxTemperature: 358.15, // 85 °C
+			MinTemperature: 273.15, // 0 °C
 		}
 	}
 
@@ -127,11 +127,11 @@ func (c *PhysicalConfig) setDefaults() {
 	}
 	if _, ok := c.Battery["default"]; !ok {
 		c.Battery["default"] = BatteryPropertiesConfig{
-			Capacity:           10.0,
+			Capacity:           500.0,
 			NominalVoltage:     7.4,
 			CoulombEfficiency:  0.95,
-			MaxDoD:             0.8,
-			CriticalSOC:        0.2,
+			MaxDoD:             0.2,
+			CriticalSOC:        0.8,
 			InternalResistance: 0.1,
 			MaxVoltage:         8.4,
 			MinVoltage:         6.0,
@@ -144,10 +144,10 @@ func (c *PhysicalConfig) setDefaults() {
 	}
 	if _, ok := c.Power["default"]; !ok {
 		c.Power["default"] = PowerPropertiesConfig{
-			SolarEfficiency:      0.28,
-			SolarPanelArea:       0.08,
-			MaxPowerGeneration:   40.0,
-			IdlePowerConsumption: 2.0,
+			SolarEfficiency:      0.32,
+			SolarPanelArea:       104.96,
+			MaxPowerGeneration:   45276.0,
+			IdlePowerConsumption: 500.0,
 			IslEnergyPerByte:     1.0e-7,
 		}
 	}

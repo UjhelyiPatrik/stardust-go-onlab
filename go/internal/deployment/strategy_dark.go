@@ -18,6 +18,17 @@ func (s *DarkStrategy) Evaluate(source types.Node, target types.Satellite, task 
 		return -1.0
 	}
 
+	//check the battery plugin and if the satellite is already too low on battery, exclude it.
+	if batteryPlugin != nil {
+		soc, err := batteryPlugin.GetSOC(target)
+		if err != nil {
+			return -1.0
+		}
+		if soc < 0.8 {
+			return -1.0
+		}
+	}
+
 	// Check temperature first to avoid unnecessary sunlight checks on already overheated satellites.
 	temp, err := thermalPlugin.GetTemperature(target)
 	if err != nil {

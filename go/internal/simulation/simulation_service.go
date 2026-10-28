@@ -58,6 +58,14 @@ func (s *SimulationService) GetStatePluginRepository() *types.StatePluginReposit
 }
 
 func (s *SimulationService) Close() {
+	// Close plugins if they implement Close()
+	for _, p := range s.simplugins {
+		if closer, ok := p.(interface{ Close() }); ok {
+			closer.Close()
+		}
+	}
+
+	// Save simulation state if serializer is present
 	if s.simulationStateSerializer != nil {
 		s.simulationStateSerializer.Save(s)
 	}

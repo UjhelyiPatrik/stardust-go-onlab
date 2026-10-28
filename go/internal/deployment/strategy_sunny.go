@@ -21,6 +21,18 @@ func (s *SunnyStrategy) Evaluate(source types.Node, target types.Satellite, task
 	if err != nil {
 		return -1.0
 	}
+
+	//check the battery plugin and if the satellite is already too low on battery, exclude it.
+	if batteryPlugin != nil {
+		soc, err := batteryPlugin.GetSOC(target)
+		if err != nil {
+			return -1.0
+		}
+		if soc < 0.8 {
+			return -1.0
+		}
+	}
+
 	maxTemp := 50.0
 	maxTemp = thermalPlugin.GetThermalProperties(target).MaxTemperature
 

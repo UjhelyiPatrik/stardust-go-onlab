@@ -243,6 +243,10 @@ func (p *TelemetryExporterPlugin) startWriter() {
 			p.compWriter.Write(record.Data)
 		}
 	}
+
+	p.nodeWriter.Flush()
+	p.networkWriter.Flush()
+	p.compWriter.Flush()
 }
 
 // Close should be called at the end of the simulation to release file handles.
