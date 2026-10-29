@@ -26,6 +26,8 @@ func (pb *DefaultStatePluginPrecompBuilder) BuildPlugins(pluginNames []string) (
 		switch name {
 		case "DummySunStatePlugin":
 			plugins = append(plugins, NewDummySunStatePrecompPlugin(pb.filename))
+		case "ThermalEnvironmentStatePlugin", "ThermalEnvironmentPlugin":
+			plugins = append(plugins, NewThermalEnvironmentPrecompPlugin(pb.filename))
 		default:
 			return nil, fmt.Errorf("unknown plugin: %s", name)
 		}

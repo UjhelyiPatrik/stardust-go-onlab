@@ -137,9 +137,30 @@ func (gs *LiveGroundStation) GetTaskQueue() []types.DeployableService {
 	return queueCopy
 }
 
-// ClearTaskQueue empties the local task queue.
+// ClearTaskQueue empties the local task queue while retaining backing slice capacity.
 func (gs *LiveGroundStation) ClearTaskQueue() {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
-	gs.taskQueue = make([]types.DeployableService, 0)
+	gs.taskQueue = gs.taskQueue[:0]
+}
+
+// GetTaskQueueLen returns the number of pending tasks without allocating a slice copy.
+func (gs *LiveGroundStation) GetTaskQueueLen() int {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	return len(gs.taskQueue)
+}
+
+// PeekTaskQueue returns the underlying task slice directly (for single-owner tick orchestration).
+func (gs *LiveGroundStation) PeekTaskQueue() []types.DeployableService {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	return gs.taskQueue
+}
+
+// SetTaskQueue updates the task queue slice in-place.
+func (gs *LiveGroundStation) SetTaskQueue(tasks []types.DeployableService) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.taskQueue = tasks
 }

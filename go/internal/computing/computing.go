@@ -2,7 +2,6 @@ package computing
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -19,7 +18,7 @@ type Computing struct {
 	CpuUsage    float64 // DYNAMIC Duty Cycle (calculated per tick)
 	MemoryUsage float64 // Statically reserved RAM
 	Services    []types.DeployableService
-	mu          sync.Mutex
+	mu          sync.RWMutex
 	node        types.Node
 }
 
@@ -34,12 +33,21 @@ func NewComputing(cpu, memory float64, ctype types.ComputingType) *Computing {
 }
 
 func (c *Computing) GetServices() []types.DeployableService {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
+	if len(c.Services) == 0 {
+		return nil
+	}
 	servicesCopy := make([]types.DeployableService, len(c.Services))
 	copy(servicesCopy, c.Services)
 	return servicesCopy
+}
+
+func (c *Computing) GetActiveServiceCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.Services)
 }
 
 func (c *Computing) Mount(node types.Node) error {
@@ -67,7 +75,7 @@ func (c *Computing) TryPlaceDeploymentAsync(service types.DeployableService) (bo
 	}
 
 	c.Services = append(c.Services, service)
-	c.MemoryUsage += service.GetMemoryUsage() // CPU is NOT reserved statically anymore!
+	c.MemoryUsage += service.GetMemoryUsage()
 
 	return true, nil
 }
@@ -90,8 +98,6 @@ func (c *Computing) RemoveDeploymentAsync(service types.DeployableService) error
 // Tick processes the required clock cycles for all running tasks based on elapsed time.
 // It sets the precise CpuUsage fraction (Duty Cycle) for the thermal and battery plugins.
 func (c *Computing) Tick(deltaT float64, currentTime time.Time) {
-
-	// Change GHz to Cycles: availableCyclesPerSec = GHz * 1e9 (cycles per second)
 	availableCyclesPerSec := uint64(c.Cpu * 1e9)
 	totalAvailableCycles := uint64(float64(availableCyclesPerSec) * deltaT)
 
@@ -99,8 +105,7 @@ func (c *Computing) Tick(deltaT float64, currentTime time.Time) {
 		return
 	}
 
-	var remainingServices []types.DeployableService
-	var completedResults []types.TaskResult // ÚJ: Ide gyűjtjük a kész feladatokat
+	var completedResults []types.TaskResult
 	var totalConsumedCycles uint64 = 0
 
 	func() {
@@ -113,6 +118,7 @@ func (c *Computing) Tick(deltaT float64, currentTime time.Time) {
 		}
 
 		cyclesPerTask := totalAvailableCycles / uint64(len(c.Services))
+		writeIdx := 0
 
 		for _, service := range c.Services {
 			isCompleted, consumed := service.ExecuteCycles(cyclesPerTask)
@@ -122,11 +128,12 @@ func (c *Computing) Tick(deltaT float64, currentTime time.Time) {
 				c.MemoryUsage -= service.GetMemoryUsage()
 				completedResults = append(completedResults, service.CreateResult(service.GetRequiredCycles()))
 			} else {
-				remainingServices = append(remainingServices, service)
+				c.Services[writeIdx] = service
+				writeIdx++
 			}
 		}
 
-		c.Services = remainingServices
+		c.Services = c.Services[:writeIdx]
 
 		utilization := float64(totalConsumedCycles) / float64(totalAvailableCycles)
 		if utilization > 1.0 {
@@ -135,39 +142,30 @@ func (c *Computing) Tick(deltaT float64, currentTime time.Time) {
 		c.CpuUsage = c.Cpu * utilization
 	}()
 
-	// --- HÁLÓZATI MŰVELETEK ÉS TELEMETRIA A LOCKON KÍVÜL ---
-
 	if len(completedResults) > 0 {
 		netService := network.NewNetworkService()
 
 		for _, result := range completedResults {
 			latency := 0
 			if c.node != nil && result.GetOriginGS() != nil {
-				// Ez a lassú művelet (útvonalkeresés) most már nem blokkolja a memóriát!
 				l, err := netService.Transmit(c.node, result.GetOriginGS(), result)
 				if err == nil {
 					latency = l
 				}
 			}
 
-			// Telemetria rögzítése
 			metrics.RecordTaskCompletion(result.GetCreatedAt(), currentTime, latency, result.GetConsumedCapacity())
-
-			if c.node != nil {
-				log.Printf("[SUCCESS] Computing Node %s completed task: %s. Latency: %d", c.node.GetName(), result.GetServiceName(), latency)
-			}
 		}
 	}
 }
 
 func (c *Computing) CanPlace(service types.DeployableService) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.canPlaceLockFree(service)
 }
 
 func (c *Computing) canPlaceLockFree(service types.DeployableService) bool {
-	// ONLY Memory is a hard hardware constraint. CPU time is dynamically shared.
 	if service.GetMemoryUsage() > (c.Memory - c.MemoryUsage) {
 		return false
 	}
@@ -180,8 +178,8 @@ func (c *Computing) canPlaceLockFree(service types.DeployableService) bool {
 }
 
 func (c *Computing) HostsService(serviceName string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	for _, s := range c.Services {
 		if s.GetServiceName() == serviceName {
@@ -192,20 +190,20 @@ func (c *Computing) HostsService(serviceName string) bool {
 }
 
 func (c *Computing) CpuAvailable() float64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.Cpu - c.CpuUsage
 }
 
 func (c *Computing) MemoryAvailable() float64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.Memory - c.MemoryUsage
 }
 
 func (c *Computing) Clone() types.Computing {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	servicesClone := make([]types.DeployableService, len(c.Services))
 	copy(servicesClone, c.Services)
@@ -227,8 +225,8 @@ func (c *Computing) GetComputingType() types.ComputingType {
 
 // GetCpuUtilization returns the CPU usage as a percentage (0.0 to 100.0).
 func (c *Computing) GetCpuUtilization() float64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	if c.Cpu == 0 {
 		return 0.0

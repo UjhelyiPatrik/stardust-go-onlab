@@ -6,9 +6,11 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/polaris-slo-cloud/stardust-go/configs"
+	"github.com/polaris-slo-cloud/stardust-go/internal/node"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/helper"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
@@ -17,6 +19,11 @@ var _ types.StatePlugin = (*ThermalEnvironmentStatePlugin)(nil)
 var _ ThermalEnvironmentPlugin = (*ThermalEnvironmentStatePlugin)(nil)
 var _ SunStatePlugin = (*ThermalEnvironmentStatePlugin)(nil)
 
+const (
+	solarRadiusMeters      = 6.957e8       // Physical radius of the Sun (m)
+	astronomicalUnitMeters = 1.495978707e11 // 1 AU (mean Earth-Sun distance in m)
+)
+
 // ThermalEnvironmentPlugin defines the interface for thermal environment plugins
 type ThermalEnvironmentPlugin interface {
 	types.StatePlugin
@@ -24,8 +31,10 @@ type ThermalEnvironmentPlugin interface {
 	GetOrbitalPosition(node types.Node) types.OrbitalPosition
 }
 
-// ThermalEnvironmentStatePlugin calculates and stores environmental heat for satellites
+// ThermalEnvironmentStatePlugin calculates and stores environmental heat and solar power generation for satellites.
+// Supports both multi-threaded live calculation and O(1) precomputed playback.
 type ThermalEnvironmentStatePlugin struct {
+	mu                sync.RWMutex
 	environmentalHeat map[types.Node]types.EnvironmentalHeat
 	orbitalPositions  map[types.Node]types.OrbitalPosition
 	states            []map[string]types.EnvironmentalHeat
@@ -34,9 +43,14 @@ type ThermalEnvironmentStatePlugin struct {
 	sunVector         types.Vector
 	earthRadius       float64
 	refTime           time.Time
+	precomputedMode   bool
+	currentStep       int
 }
 
 func NewThermalEnvironmentStatePlugin() *ThermalEnvironmentStatePlugin {
+	// Fixed astronomical reference epoch: 2025 Vernal Equinox (ensures 100% deterministic & accurate solar geometry)
+	vernalEquinox2025 := time.Date(2025, 3, 20, 9, 1, 0, 0, time.UTC)
+
 	p := &ThermalEnvironmentStatePlugin{
 		environmentalHeat: make(map[types.Node]types.EnvironmentalHeat),
 		orbitalPositions:  make(map[types.Node]types.OrbitalPosition),
@@ -44,8 +58,10 @@ func NewThermalEnvironmentStatePlugin() *ThermalEnvironmentStatePlugin {
 		thermalProps:      make(map[string]types.ThermalProperties),
 		powerProps:        make(map[string]types.PowerProperties),
 		sunVector:         types.Vector{X: 1, Y: 0, Z: 0},
-		earthRadius:       6371000.0, // Earth radius in meters
-		refTime:           time.Now(),
+		earthRadius:       6371000.0, // Earth mean radius in meters
+		refTime:           vernalEquinox2025,
+		precomputedMode:   false,
+		currentStep:       -1,
 	}
 
 	configPath := "./resources/configs/physicalConfig.yaml"
@@ -67,6 +83,7 @@ func NewThermalEnvironmentStatePlugin() *ThermalEnvironmentStatePlugin {
 				SolarPanelArea:       props.SolarPanelArea,
 				MaxPowerGeneration:   props.MaxPowerGeneration,
 				IdlePowerConsumption: props.IdlePowerConsumption,
+				IslEnergyPerByte:     props.IslEnergyPerByte,
 			})
 		}
 	} else {
@@ -76,8 +93,23 @@ func NewThermalEnvironmentStatePlugin() *ThermalEnvironmentStatePlugin {
 	return p
 }
 
+// NewThermalEnvironmentPrecompPlugin creates a precomputed environment plugin that reads directly from PrecomputedSatState or .thermalEnv file.
+func NewThermalEnvironmentPrecompPlugin(origFile string) *ThermalEnvironmentStatePlugin {
+	p := NewThermalEnvironmentStatePlugin()
+	p.precomputedMode = true
+
+	filename := helper.ExtendFilename(origFile, ".thermalEnv")
+	if file, err := os.Open(filename); err == nil {
+		defer file.Close()
+		decoder := gob.NewDecoder(file)
+		_ = decoder.Decode(&p.states)
+	}
+
+	return p
+}
+
 func (p *ThermalEnvironmentStatePlugin) GetName() string {
-	return "ThermalEnvironmentPlugin"
+	return "ThermalEnvironmentStatePlugin"
 }
 
 func (p *ThermalEnvironmentStatePlugin) GetType() reflect.Type {
@@ -85,119 +117,205 @@ func (p *ThermalEnvironmentStatePlugin) GetType() reflect.Type {
 	return reflect.TypeOf(dummy)
 }
 
-func (p *ThermalEnvironmentStatePlugin) GetEnvironmentalHeat(node types.Node) types.EnvironmentalHeat {
-	return p.environmentalHeat[node]
+func (p *ThermalEnvironmentStatePlugin) GetEnvironmentalHeat(n types.Node) types.EnvironmentalHeat {
+	// Fast O(1) lock-free path when using PrecomputedSatellite
+	if pSat, ok := n.(*node.PrecomputedSatellite); ok {
+		if st, hasState := pSat.GetCurrentPrecomputedState(); hasState {
+			return types.EnvironmentalHeat{
+				SolarHeat:            st.SolarHeat,
+				AlbedoHeat:           st.AlbedoHeat,
+				IRHeat:               st.IRHeat,
+				TotalHeat:            st.TotalEnvironmentalHeat,
+				SunlightExposure:     st.SunlightExposure,
+				BetaAngle:            st.BetaAngle,
+				InEclipse:            st.InEclipse,
+				EclipseDepth:         st.EclipseDepth,
+				SolarPowerGeneration: st.SolarPowerGeneration,
+			}
+		}
+	}
+
+	p.mu.RLock()
+	if heat, ok := p.environmentalHeat[n]; ok {
+		p.mu.RUnlock()
+		return heat
+	}
+	if p.precomputedMode && p.currentStep >= 0 && p.currentStep < len(p.states) {
+		if heat, ok := p.states[p.currentStep][n.GetName()]; ok {
+			p.mu.RUnlock()
+			return heat
+		}
+	}
+	p.mu.RUnlock()
+	return types.EnvironmentalHeat{}
 }
 
-func (p *ThermalEnvironmentStatePlugin) GetOrbitalPosition(node types.Node) types.OrbitalPosition {
-	return p.orbitalPositions[node]
+func (p *ThermalEnvironmentStatePlugin) GetOrbitalPosition(n types.Node) types.OrbitalPosition {
+	if pSat, ok := n.(*node.PrecomputedSatellite); ok {
+		if st, hasState := pSat.GetCurrentPrecomputedState(); hasState {
+			return types.OrbitalPosition{
+				Position:     st.Position,
+				BetaAngle:    st.BetaAngle,
+				InEclipse:    st.InEclipse,
+				EclipseDepth: st.EclipseDepth,
+			}
+		}
+	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.orbitalPositions[n]
 }
 
 func (p *ThermalEnvironmentStatePlugin) SetThermalProperties(nodeType string, props types.ThermalProperties) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.thermalProps[nodeType] = props
 }
 
 func (p *ThermalEnvironmentStatePlugin) SetPowerProperties(nodeType string, props types.PowerProperties) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.powerProps[nodeType] = props
 }
 
 func (p *ThermalEnvironmentStatePlugin) PostSimulationStep(simulationController types.SimulationController) {
+	p.currentStep++
 	nodes := simulationController.GetSatellites()
-	simTime := simulationController.GetSimulationTime()
+	if len(nodes) == 0 {
+		return
+	}
 
+	// Fast path in precomputed mode if PrecomputedSatellite already holds the step state
+	if pSat, ok := nodes[0].(*node.PrecomputedSatellite); ok {
+		if _, hasState := pSat.GetCurrentPrecomputedState(); hasState {
+			return
+		}
+	}
+
+	simTime := simulationController.GetSimulationTime()
 	p.updateSunVector(simTime)
 
-	for _, node := range nodes {
-		p.calculateEnvironmentalHeat(node)
+	// Multi-threaded calculation across all satellites
+	heats := make([]types.EnvironmentalHeat, len(nodes))
+	orbPositions := make([]types.OrbitalPosition, len(nodes))
+	indices := make([]int, len(nodes))
+	for i := range nodes {
+		indices[i] = i
 	}
+
+	helper.ParallelFor(indices, func(i int) {
+		orbPos, heat := p.computeSatelliteEnvironment(nodes[i])
+		orbPositions[i] = orbPos
+		heats[i] = heat
+	})
+
+	p.mu.Lock()
+	for i, n := range nodes {
+		p.orbitalPositions[n] = orbPositions[i]
+		p.environmentalHeat[n] = heats[i]
+	}
+	p.mu.Unlock()
 }
 
 func (p *ThermalEnvironmentStatePlugin) updateSunVector(simTime time.Time) {
 	days := simTime.Sub(p.refTime).Hours() / 24.0
-	angle := days * 2 * math.Pi / 365.25
-	epsilon := 23.44 * math.Pi / 180.0
+	// Mean anomaly & ecliptic longitude of the Sun (high-precision astronomical approximation)
+	meanLongitude := 2.0 * math.Pi * days / 365.24219
+	meanAnomaly := 2.0*math.Pi*(days/365.259636) - 0.041
+	eclipticLongitude := meanLongitude + 0.0334*math.Sin(meanAnomaly) + 0.000349*math.Sin(2.0*meanAnomaly)
+	epsilon := 23.439291 * math.Pi / 180.0 // Obliquity of the ecliptic
 
+	sinLon := math.Sin(eclipticLongitude)
 	p.sunVector = types.Vector{
-		X: math.Cos(angle),
-		Y: math.Sin(angle) * math.Cos(epsilon),
-		Z: math.Sin(angle) * math.Sin(epsilon),
-	}
+		X: math.Cos(eclipticLongitude),
+		Y: sinLon * math.Cos(epsilon),
+		Z: sinLon * math.Sin(epsilon),
+	}.Normalize()
 }
 
-func (p *ThermalEnvironmentStatePlugin) calculateEnvironmentalHeat(node types.Node) {
-	position := node.GetPosition()
+func (p *ThermalEnvironmentStatePlugin) computeSatelliteEnvironment(n types.Node) (types.OrbitalPosition, types.EnvironmentalHeat) {
+	position := n.GetPosition()
 
-	// OPTIMIZATION: Calculate distance and dot product ONCE per satellite
 	distSq := position.X*position.X + position.Y*position.Y + position.Z*position.Z
 	dist := math.Sqrt(distSq)
+	if dist == 0 {
+		return types.OrbitalPosition{}, types.EnvironmentalHeat{}
+	}
 
-	// Projection of satellite position onto the sun vector
+	// Projection of satellite position onto the unit sun vector
 	dotProduct := position.X*p.sunVector.X + position.Y*p.sunVector.Y + position.Z*p.sunVector.Z
+	normDotProduct := math.Max(-1.0, math.Min(1.0, dotProduct/dist))
 
-	// Normalized projection (-1.0 to 1.0) for angular calculations
-	normDotProduct := dotProduct / dist
-
-	// Calculate precise orbital position and eclipse state
+	// Calculate precise conical (Umbra + Penumbra) orbital eclipse state
 	orbitalPos := p.calculateOrbitalPosition(position, dist, distSq, dotProduct, normDotProduct)
-	p.orbitalPositions[node] = orbitalPos
 
-	thermalProps := p.getThermalProperties(node)
+	thermalProps := p.getThermalProperties(n)
+	powerProps := p.getPowerProperties(n)
 
-	var solarHeat, albedoHeat, irHeat float64
-	sunlightExposure := 1.0
+	var solarHeat, albedoHeat, irHeat, solarPowerGen float64
+	sunlightExposure := 0.0
 
-	if orbitalPos.InEclipse {
-		// In Umbra (full shadow)
-		solarHeat = 0
-		albedoHeat = 0
-		sunlightExposure = 0
-	} else {
-		// Calculate precise sunlight exposure (accounts for Penumbra)
+	if !orbitalPos.InEclipse {
 		sunlightExposure = p.calculateSunlightExposure(normDotProduct, orbitalPos)
 		solarHeat = p.calculateSolarHeat(thermalProps, sunlightExposure)
-
-		// Albedo is only generated from the sunlit side of Earth
 		albedoHeat = p.calculateAlbedoHeat(dist, normDotProduct, thermalProps)
+		solarPowerGen = powerProps.MaxPowerGeneration * sunlightExposure * powerProps.SolarEfficiency
 	}
 
-	// IR heat is always present (Earth continuously radiates heat)
+	// IR heat is continuously radiated from Earth
 	irHeat = p.calculateIRHeat(dist, thermalProps)
-
 	totalHeat := solarHeat + albedoHeat + irHeat
 
-	p.environmentalHeat[node] = types.EnvironmentalHeat{
-		SolarHeat:        solarHeat,
-		AlbedoHeat:       albedoHeat,
-		IRHeat:           irHeat,
-		TotalHeat:        totalHeat,
-		SunlightExposure: sunlightExposure,
-		BetaAngle:        orbitalPos.BetaAngle,
-		InEclipse:        orbitalPos.InEclipse,
+	heat := types.EnvironmentalHeat{
+		SolarHeat:            solarHeat,
+		AlbedoHeat:           albedoHeat,
+		IRHeat:               irHeat,
+		TotalHeat:            totalHeat,
+		SunlightExposure:     sunlightExposure,
+		BetaAngle:            orbitalPos.BetaAngle,
+		InEclipse:            orbitalPos.InEclipse,
+		EclipseDepth:         orbitalPos.EclipseDepth,
+		SolarPowerGeneration: solarPowerGen,
 	}
+
+	return orbitalPos, heat
 }
 
-// calculateOrbitalPosition determines the true cylindrical eclipse state
+// calculateOrbitalPosition determines the conical (Umbra + Penumbra) eclipse state.
 func (p *ThermalEnvironmentStatePlugin) calculateOrbitalPosition(pos types.Vector, dist float64, distSq float64, dotProduct float64, normDot float64) types.OrbitalPosition {
 	orbitalPos := types.OrbitalPosition{
 		Position:     pos,
 		TrueAnomaly:  0,
-		BetaAngle:    math.Acos(math.Abs(normDot)) * 180 / math.Pi,
+		BetaAngle:    math.Acos(math.Min(1.0, math.Abs(normDot))) * 180.0 / math.Pi,
 		InEclipse:    false,
-		EclipseDepth: 0,
+		EclipseDepth: 0.0,
 	}
 
-	//Cylindrical Shadow Model (It can be further developed to include penumbra calculations, but this is a good starting point for eclipse state)
-	// A satellite is only in eclipse if it is BEHIND the Earth relative to the sun (dotProduct < 0)
+	// Satellite can only be in Earth's shadow if it is on the anti-solar side (dotProduct < 0)
 	if dotProduct < 0 {
-		// Calculate the perpendicular distance squared from the Earth-Sun axis
-		// Pythagorean theorem: perpendicular^2 = hypotenuse^2 - adjacent^2
-		distToAxisSq := distSq - (dotProduct * dotProduct)
-		earthRadiusSq := p.earthRadius * p.earthRadius * 1.01 // Add 1% margin to account for atmospheric effects and penumbra
+		perpDistSq := distSq - (dotProduct * dotProduct)
+		if perpDistSq < 0 {
+			perpDistSq = 0
+		}
+		perpDist := math.Sqrt(perpDistSq)
+		shadowAxisDist := -dotProduct
 
-		// If the satellite is further from the axis than the Earth's radius, it is in sunlight
-		if distToAxisSq < earthRadiusSq {
+		// Conical Umbra and Penumbra geometry taking atmospheric refraction (+1% effective radius) into account
+		effEarthRadius := p.earthRadius * 1.005
+		tanUmbra := (solarRadiusMeters - effEarthRadius) / astronomicalUnitMeters
+		tanPenumbra := (solarRadiusMeters + effEarthRadius) / astronomicalUnitMeters
+
+		umbraRadius := effEarthRadius - shadowAxisDist*tanUmbra
+		penumbraRadius := effEarthRadius + shadowAxisDist*tanPenumbra
+
+		if perpDist <= umbraRadius {
 			orbitalPos.InEclipse = true
 			orbitalPos.EclipseDepth = 1.0
+		} else if perpDist < penumbraRadius && penumbraRadius > umbraRadius {
+			// In Penumbra (partial solar occultation)
+			orbitalPos.InEclipse = false
+			orbitalPos.EclipseDepth = (penumbraRadius - perpDist) / (penumbraRadius - umbraRadius)
 		}
 	}
 
@@ -209,14 +327,14 @@ func (p *ThermalEnvironmentStatePlugin) calculateSunlightExposure(normDot float6
 		return 0.0
 	}
 
-	// Base exposure based on the angle facing the sun (assuming optimal solar panel orientation)
-	baseExposure := math.Max(0, normDot)
-
-	// Apply penumbra dimming if applicable
-	if orbitalPos.EclipseDepth > 0 {
-		baseExposure = baseExposure * (1.0 - orbitalPos.EclipseDepth)
+	// Sun-tracking solar array orientation with penumbra attenuation
+	baseExposure := 1.0 - orbitalPos.EclipseDepth
+	if baseExposure < 0 {
+		baseExposure = 0
 	}
-
+	if baseExposure > 1.0 {
+		baseExposure = 1.0
+	}
 	return baseExposure
 }
 
@@ -225,11 +343,9 @@ func (p *ThermalEnvironmentStatePlugin) calculateSolarHeat(thermalProps types.Th
 }
 
 func (p *ThermalEnvironmentStatePlugin) calculateAlbedoHeat(dist float64, normDot float64, thermalProps types.ThermalProperties) float64 {
-	// If the satellite is over the dark side of Earth, there is no albedo reflection
 	if normDot <= 0 {
 		return 0.0
 	}
-
 	viewFactor := math.Pow(p.earthRadius/dist, 2)
 	return thermalProps.Absorptivity * types.SolarConstant * types.EarthAlbedoFactor * thermalProps.SurfaceArea * viewFactor * normDot
 }
@@ -239,8 +355,10 @@ func (p *ThermalEnvironmentStatePlugin) calculateIRHeat(dist float64, thermalPro
 	return thermalProps.Emissivity * types.StefanBoltzmannConstant * thermalProps.SurfaceArea * viewFactor * math.Pow(types.EarthTemperature, 4)
 }
 
-func (p *ThermalEnvironmentStatePlugin) getThermalProperties(node types.Node) types.ThermalProperties {
-	if props, ok := p.thermalProps[node.GetName()]; ok {
+func (p *ThermalEnvironmentStatePlugin) getThermalProperties(n types.Node) types.ThermalProperties {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if props, ok := p.thermalProps[n.GetName()]; ok {
 		return props
 	}
 	if props, ok := p.thermalProps["default"]; ok {
@@ -249,8 +367,10 @@ func (p *ThermalEnvironmentStatePlugin) getThermalProperties(node types.Node) ty
 	return types.DefaultThermalProperties()
 }
 
-func (p *ThermalEnvironmentStatePlugin) getPowerProperties(node types.Node) types.PowerProperties {
-	if props, ok := p.powerProps[node.GetName()]; ok {
+func (p *ThermalEnvironmentStatePlugin) getPowerProperties(n types.Node) types.PowerProperties {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if props, ok := p.powerProps[n.GetName()]; ok {
 		return props
 	}
 	if props, ok := p.powerProps["default"]; ok {
@@ -260,37 +380,49 @@ func (p *ThermalEnvironmentStatePlugin) getPowerProperties(node types.Node) type
 }
 
 func (p *ThermalEnvironmentStatePlugin) AddState(simulationController types.SimulationController) {
-	stateMap := make(map[string]types.EnvironmentalHeat)
-	for node, heat := range p.environmentalHeat {
-		stateMap[node.GetName()] = heat
-	}
-	p.states = append(p.states, stateMap)
+	// No-op: thermal and solar states are serialized directly inside PrecomputedSatState chunks.
 }
 
 func (p *ThermalEnvironmentStatePlugin) Save(origFile string) {
-	filename := helper.ExtendFilename(origFile, ".thermalEnv")
-	file, err := os.Create(filename)
-	if err != nil {
-		fmt.Printf("Error creating thermal environment file: %v\n", err)
-		return
-	}
-	defer file.Close()
-	encoder := gob.NewEncoder(file)
-	encoder.Encode(p.states)
+	// No-op: thermal and solar states are serialized directly inside PrecomputedSatState chunks.
 }
 
 // IsEclipse is required to satisfy the SunStatePlugin interface for the Analytics telemetry
-func (p *ThermalEnvironmentStatePlugin) IsEclipse(node types.Node) bool {
-	if pos, ok := p.orbitalPositions[node]; ok {
+func (p *ThermalEnvironmentStatePlugin) IsEclipse(n types.Node) bool {
+	if pSat, ok := n.(*node.PrecomputedSatellite); ok {
+		if st, hasState := pSat.GetCurrentPrecomputedState(); hasState {
+			return st.InEclipse
+		}
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if pos, ok := p.orbitalPositions[n]; ok {
 		return pos.InEclipse
+	}
+	if p.precomputedMode && p.currentStep >= 0 && p.currentStep < len(p.states) {
+		if heat, ok := p.states[p.currentStep][n.GetName()]; ok {
+			return heat.InEclipse
+		}
 	}
 	return false
 }
 
 // GetSunlightExposure returns the current sunlight exposure for a satellite (0.0 to 1.0)
-func (p *ThermalEnvironmentStatePlugin) GetSunlightExposure(node types.Node) float64 {
-	if heat, ok := p.environmentalHeat[node]; ok {
+func (p *ThermalEnvironmentStatePlugin) GetSunlightExposure(n types.Node) float64 {
+	if pSat, ok := n.(*node.PrecomputedSatellite); ok {
+		if st, hasState := pSat.GetCurrentPrecomputedState(); hasState {
+			return st.SunlightExposure
+		}
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if heat, ok := p.environmentalHeat[n]; ok {
 		return heat.SunlightExposure
+	}
+	if p.precomputedMode && p.currentStep >= 0 && p.currentStep < len(p.states) {
+		if heat, ok := p.states[p.currentStep][n.GetName()]; ok {
+			return heat.SunlightExposure
+		}
 	}
 	return 0.0
 }

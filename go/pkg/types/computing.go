@@ -44,6 +44,9 @@ type Computing interface {
 
 	// GetServices returns the list of deployed services
 	GetServices() []DeployableService
+
+	// GetActiveServiceCount returns the number of currently deployed services without allocating a slice copy
+	GetActiveServiceCount() int
 }
 
 // ComputingType represents the type of computing resource.

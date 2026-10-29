@@ -143,6 +143,12 @@ type EnvironmentalHeat struct {
 
 	// Is in eclipse (shadow)
 	InEclipse bool `json:"inEclipse"`
+
+	// Eclipse depth (0-1, 0 = full sunlight, 0..1 = penumbra, 1 = full umbra)
+	EclipseDepth float64 `json:"eclipseDepth"`
+
+	// Precomputed solar power generation (W)
+	SolarPowerGeneration float64 `json:"solarPowerGeneration"`
 }
 
 // =============================================================================
@@ -196,7 +202,7 @@ func NewSatellitePhysicalState(nodeName string) *SatellitePhysicalState {
 
 // OrbitalPosition represents a satellite's position in orbit
 type OrbitalPosition struct {
-	// Position in ECI coordinates
+	// Position in ECI/ECEF coordinates
 	Position Vector `json:"position"`
 
 	// Velocity vector

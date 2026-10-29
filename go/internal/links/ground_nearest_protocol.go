@@ -17,7 +17,7 @@ type GroundSatelliteNearestProtocol struct {
 	link          *linktypes.GroundLink // Current active ground link
 	satellites    []types.Satellite     // Available satellites
 	groundStation types.Node            // The ground station node
-	mu            sync.Mutex
+	mu            sync.RWMutex
 }
 
 // NewGroundSatelliteNearestProtocol creates a new protocol with an initial list of satellites.
@@ -50,6 +50,7 @@ func (p *GroundSatelliteNearestProtocol) DisconnectLink(link types.Link) error {
 }
 
 // UpdateLinks selects the closest satellite that is ABOVE the horizon and sets up the ground link.
+// Uses zero-allocation inline horizon dot-product and squared-distance comparisons.
 func (p *GroundSatelliteNearestProtocol) UpdateLinks() ([]types.Link, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -62,46 +63,44 @@ func (p *GroundSatelliteNearestProtocol) UpdateLinks() ([]types.Link, error) {
 		return nil, errors.New("no satellites available")
 	}
 
+	gsPos := p.groundStation.GetPosition()
 	var nearest types.Satellite
-	minDist := math.MaxFloat64
+	minDistSq := math.MaxFloat64
 
-	// Iterate through all satellites to find the closest one that is actually visible
 	for _, sat := range p.satellites {
-		// Create a temporary link purely to evaluate reachability (Line of Sight)
-		tempLink := linktypes.NewGroundLink(p.groundStation, sat)
+		satPos := sat.GetPosition()
+		dx := satPos.X - gsPos.X
+		dy := satPos.Y - gsPos.Y
+		dz := satPos.Z - gsPos.Z
 
-		if !tempLink.IsReachable() {
-			continue // Satellite is obstructed by the Earth (below horizon)
+		// Horizon line-of-sight check: dot product of Ground Station Zenith vector and direction vector > 0
+		if (gsPos.X*dx)+(gsPos.Y*dy)+(gsPos.Z*dz) <= 0 {
+			continue
 		}
 
-		dist := p.groundStation.DistanceTo(sat)
-		if dist < minDist {
-			minDist = dist
+		distSq := dx*dx + dy*dy + dz*dz
+		if distSq < minDistSq {
+			minDistSq = distSq
 			nearest = sat
 		}
 	}
 
-	// If no satellites are currently visible in the sky (e.g., sparse constellation)
 	if nearest == nil {
 		if p.link != nil {
-			// Disconnect the existing link because the satellite disappeared below the horizon
-			p.link.Satellite.GetLinkNodeProtocol().DisconnectLink(p.link)
+			_ = p.link.Satellite.GetLinkNodeProtocol().DisconnectLink(p.link)
 			p.link = nil
 		}
 		return nil, errors.New("no visible satellites above the horizon")
 	}
 
-	// If we found a valid nearest satellite and it requires a link update
-	if p.link == nil || p.link.Satellite.GetName() != nearest.GetName() {
+	if p.link == nil || p.link.Satellite != nearest {
 		old := p.link
 		p.link = linktypes.NewGroundLink(p.groundStation, nearest)
 
-		// Connect new link to the satellite's ISL protocol module
-		nearest.GetLinkNodeProtocol().ConnectLink(p.link)
+		_ = nearest.GetLinkNodeProtocol().ConnectLink(p.link)
 
-		// Clean up the connection to the previous satellite
 		if old != nil {
-			old.Satellite.GetLinkNodeProtocol().DisconnectLink(old)
+			_ = old.Satellite.GetLinkNodeProtocol().DisconnectLink(old)
 		}
 	}
 
@@ -110,8 +109,11 @@ func (p *GroundSatelliteNearestProtocol) UpdateLinks() ([]types.Link, error) {
 
 // Links returns the current active link if any.
 func (p *GroundSatelliteNearestProtocol) Links() []types.Link {
-	if p.link != nil {
-		return []types.Link{p.link}
+	p.mu.RLock()
+	l := p.link
+	p.mu.RUnlock()
+	if l != nil {
+		return []types.Link{l}
 	}
 	return nil
 }
@@ -123,8 +125,8 @@ func (p *GroundSatelliteNearestProtocol) Established() []types.Link {
 
 // Link returns the currently active GroundLink.
 func (p *GroundSatelliteNearestProtocol) Link() types.Link {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.link
 }
 
@@ -143,7 +145,6 @@ func (p *GroundSatelliteNearestProtocol) RemoveSatellite(toRemove types.Node) {
 	defer p.mu.Unlock()
 
 	if satellite, ok := toRemove.(types.Satellite); ok {
-		// Filter out the satellite
 		filtered := make([]types.Satellite, 0, len(p.satellites))
 		for _, s := range p.satellites {
 			if s.GetName() != satellite.GetName() {
@@ -152,9 +153,8 @@ func (p *GroundSatelliteNearestProtocol) RemoveSatellite(toRemove types.Node) {
 		}
 		p.satellites = filtered
 
-		// Remove the link if it was pointing to the removed satellite
 		if p.link != nil && p.link.Satellite.GetName() == satellite.GetName() {
-			satellite.GetLinkNodeProtocol().DisconnectLink(p.link)
+			_ = satellite.GetLinkNodeProtocol().DisconnectLink(p.link)
 			p.link = nil
 		}
 	}

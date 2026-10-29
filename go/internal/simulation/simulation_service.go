@@ -45,7 +45,7 @@ func NewSimulationService(
 	}
 	simService.BaseSimulationService = NewBaseSimulationService(config, simService.runSimulationStep)
 
-	if *simualtionStateOutputFile != "" {
+	if simualtionStateOutputFile != nil && *simualtionStateOutputFile != "" {
 		simService.simulationStateSerializer = NewSimulationStateSerializer(*simualtionStateOutputFile, statePluginRepo.GetAllPlugins())
 		log.Printf("Simulation state will be serialized to %s", *simualtionStateOutputFile)
 	}
@@ -58,14 +58,12 @@ func (s *SimulationService) GetStatePluginRepository() *types.StatePluginReposit
 }
 
 func (s *SimulationService) Close() {
-	// Close plugins if they implement Close()
 	for _, p := range s.simplugins {
 		if closer, ok := p.(interface{ Close() }); ok {
 			closer.Close()
 		}
 	}
 
-	// Save simulation state if serializer is present
 	if s.simulationStateSerializer != nil {
 		s.simulationStateSerializer.Save(s)
 	}
@@ -85,32 +83,37 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 	s.lock.Unlock()
 
 	// 1. Stepping time forward, calculate deltaT
+	s.stepStartTime = time.Now()
 	oldTime := s.simTime
 	s.setSimulationTime(nextTime(s.GetSimulationTime()))
 	deltaT := s.simTime.Sub(oldTime).Seconds()
 
-	log.Printf("Simulation time is %s", s.simTime.Format(time.RFC3339))
-
-	// Safety exit if no time has elapsed
 	if deltaT <= 0 {
 		s.running = false
 		return
 	}
 
-	// 2. Update node positions (Orbital mechanics)
+	s.stepCount++
+	if len(s.simplugins) == 0 {
+		log.Printf("Simulation time is %s (Step %d/%d)", s.simTime.Format(time.RFC3339), s.maxStepCount, s.stepCount)
+	}
+
+	// 2. Update node positions (Orbital mechanics & Earth rotation)
 	helper.ParallelFor(s.all, func(n types.Node) {
 		n.UpdatePosition(s.simTime)
 	})
 
-	// 3. Update links (Network topology changes)
-	helper.ParallelFor(s.all, func(n types.Node) {
-		n.GetLinkNodeProtocol().UpdateLinks()
+	// 3. Update links (ISL first, then Ground-to-Satellite links to prevent concurrent link overwrite)
+	helper.ParallelFor(s.satellites, func(sat types.Satellite) {
+		_, _ = sat.GetLinkNodeProtocol().UpdateLinks()
+	})
+	helper.ParallelFor(s.groundNodes, func(gs types.GroundStation) {
+		_, _ = gs.GetLinkNodeProtocol().UpdateLinks()
 	})
 
 	// 4. CONTROL PLANE UPDATE (Orchestrator mapping)
-	// Assign satellites to ground stations based on current positions and visibility
 	coordinator := network.NewControlPlaneCoordinator()
-	coordinator.UpdateMappings(s.GetSatellites(), s.GetGroundStations(), s.simTime)
+	coordinator.UpdateMappings(s.satellites, s.groundNodes, s.simTime)
 
 	// 5. COMPUTATION TASK PROCESSING (CPU Duty Cycle)
 	helper.ParallelFor(s.all, func(n types.Node) {
@@ -122,7 +125,7 @@ func (s *SimulationService) runSimulationStep(nextTime func(time.Time) time.Time
 	// 6. Routing tables update (if enabled)
 	if s.config.UsePreRouteCalc {
 		helper.ParallelFor(s.all, func(n types.Node) {
-			n.GetRouter().CalculateRoutingTable()
+			_ = n.GetRouter().CalculateRoutingTable()
 		})
 	}
 

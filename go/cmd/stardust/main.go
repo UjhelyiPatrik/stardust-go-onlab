@@ -141,7 +141,7 @@ func startSimulationIteration(simulationConfig configs.SimulationConfig, computi
 	simPluginBuilder := simplugin.NewPluginBuilder()
 	simPlugins, err := simPluginBuilder.BuildPlugins(simulationPluginList)
 	if err != nil {
-		log.Fatalf("Failed to build simualtion plugins: %v", err)
+		log.Fatalf("Failed to build simulation plugins: %v", err)
 		return nil
 	}
 
@@ -151,6 +151,14 @@ func startSimulationIteration(simulationConfig configs.SimulationConfig, computi
 
 	// Add the deployment plugins to the simulation plugins list
 	simPlugins = append(simPlugins, deploymentPlugins...)
+
+	// Step 4.3: Initialize telemetry plugin for analytics
+	telemetryPlugin := analytics.NewTelemetryExporterPlugin(
+		orchestrationStrategyString,
+		"./results/analytics",
+		simPlugins,
+	)
+	simPlugins = append(simPlugins, telemetryPlugin)
 
 	// Step 5: State Plugin Builder
 	statePluginBuilder := stateplugin.NewStatePluginPrecompBuilder(simulationStateInputFile)
@@ -180,18 +188,18 @@ func startSimulation(simulationConfig configs.SimulationConfig, islConfigString 
 	simPluginBuilder := simplugin.NewPluginBuilder()
 	simPlugins, err := simPluginBuilder.BuildPlugins(simulationPluginList)
 	if err != nil {
-		log.Fatalf("Failed to build simualtion plugins: %v", err)
+		log.Fatalf("Failed to build simulation plugins: %v", err)
 		return nil
 	}
 
 	// Step 4.2: Initialize deployment plugin builder
-	deploymentBuilder := deployment.NewDeploymentBuilder(workloadConfig, orchestrationStrategyString) // workloadConfig paraméter átadva
+	deploymentBuilder := deployment.NewDeploymentBuilder(workloadConfig, orchestrationStrategyString)
 	deploymentPlugins := deploymentBuilder.BuildPlugins(simPlugins)
 
 	// Add the deployment plugins to the simulation plugins list
 	simPlugins = append(simPlugins, deploymentPlugins...)
 
-	// Step 4.2: Initialize state plugin builder
+	// Step 4.3: Initialize state plugin builder
 	statePluginBuilder := stateplugin.NewStatePluginBuilder()
 	statePlugins, err := statePluginBuilder.BuildPlugins(statePluginList)
 	if err != nil {
@@ -203,32 +211,32 @@ func startSimulation(simulationConfig configs.SimulationConfig, islConfigString 
 	satBuilder := satellite.NewSatelliteBuilder(routerBuilder, computingBuilder, *islConfig)
 	tleLoader := satellite.NewTleLoader(*islConfig, satBuilder)
 
-	// Step 4.2: Initialize the ground station loader
+	// Step 5.2: Initialize the ground station loader
 	groundStationBuilder := ground.NewGroundStationBuilder(simulationConfig.SimulationStartTime, routerBuilder, computingBuilder, *groundLinkConfig)
 	ymlLoader := ground.NewGroundStationYmlLoader(*groundLinkConfig, groundStationBuilder)
 
-	// Step 4.3: Initialize constellation loader and register TLE loader
+	// Step 5.3: Initialize constellation loader and register TLE loader
 	constellationLoader := satellite.NewSatelliteConstellationLoader()
 	constellationLoader.RegisterDataSourceLoader("tle", tleLoader)
 
 	// Step 6: Initialize telemetry plugin for analytics
 	telemetryPlugin := analytics.NewTelemetryExporterPlugin(
-		orchestrationStrategyString, // This should hold the strategy name e.g. "coldest", "dark"
-		"./results/analytics",       // Output directory
+		orchestrationStrategyString,
+		"./results/analytics",
 		simPlugins,
 	)
 	simPlugins = append(simPlugins, telemetryPlugin)
 
-	// Step 5: Initialize simulation service
+	// Step 7: Initialize simulation service
 	simService := simulation.NewSimulationService(&simulationConfig, routerBuilder, computingBuilder, simPlugins, types.NewStatePluginRepository(statePlugins), simulationStateOutputFile)
 
-	// Step 6: Load satellites using the loader service
+	// Step 8: Load satellites using the loader service
 	loaderService := satellite.NewSatelliteLoaderService(*islConfig, satBuilder, constellationLoader, simService, fmt.Sprintf("./resources/%s/%s", simulationConfig.SatelliteDataSourceType, simulationConfig.SatelliteDataSource), simulationConfig.SatelliteDataSourceType)
 	if err := loaderService.Start(); err != nil {
 		log.Fatalf("Failed to load satellites: %v", err)
 	}
 
-	// Step 7: Load ground stations using the ground station loader service
+	// Step 9: Load ground stations using the ground station loader service
 	groundLoaderService := ground.NewGroundStationLoaderService(simService, groundStationBuilder, ymlLoader, fmt.Sprintf("./resources/%s/%s", simulationConfig.GroundStationDataSourceType, simulationConfig.GroundStationDataSource), simulationConfig.GroundStationDataSourceType)
 	if err := groundLoaderService.Start(); err != nil {
 		log.Fatalf("Failed to load ground stations: %v", err)

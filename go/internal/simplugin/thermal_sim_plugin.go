@@ -2,19 +2,22 @@ package simplugin
 
 import (
 	"fmt"
-	"math"
-	"sort"
+	"sync"
 	"time"
 
 	"github.com/polaris-slo-cloud/stardust-go/internal/computing"
+	"github.com/polaris-slo-cloud/stardust-go/internal/node"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/helper"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
 var _ types.SimulationPlugin = (*ThermalSimPlugin)(nil)
 
-// ThermalSimPlugin simulates thermal dynamics for satellites
+// ThermalSimPlugin simulates thermal dynamics for satellites using multi-threaded execution.
 type ThermalSimPlugin struct {
+	mu               sync.RWMutex
 	thermalStates    map[string]*types.SatellitePhysicalState
+	orderedStates    []*types.SatellitePhysicalState
 	thermalProps     map[string]types.ThermalProperties
 	thermalEnvPlugin ThermalEnvironmentPlugin
 	batteryPlugin    BatterySimPluginInterface
@@ -49,18 +52,18 @@ func (p *ThermalSimPlugin) SetBatteryPlugin(plugin BatterySimPluginInterface) {
 }
 
 func (p *ThermalSimPlugin) SetThermalProperties(nodeType string, props types.ThermalProperties) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.thermalProps[nodeType] = props
 }
 
-func (p *ThermalSimPlugin) GetThermalProperties(node types.Node) types.ThermalProperties {
-	if props, ok := p.thermalProps[node.GetName()]; ok {
+func (p *ThermalSimPlugin) GetThermalProperties(n types.Node) types.ThermalProperties {
+	if props, ok := p.thermalProps[n.GetName()]; ok {
 		return props
 	}
-
 	if props, ok := p.thermalProps["default"]; ok {
 		return props
 	}
-
 	return types.DefaultThermalProperties()
 }
 
@@ -72,91 +75,15 @@ func (p *ThermalSimPlugin) SetEnableFeedback(enable bool) {
 	p.enableFeedback = enable
 }
 
-// PostSimulationStep updates thermal states for all satellites
+// PostSimulationStep updates thermal states for all satellites concurrently across all CPU cores.
 func (p *ThermalSimPlugin) PostSimulationStep(simulation types.SimulationController) error {
 	nodes := simulation.GetSatellites()
+	if len(nodes) == 0 {
+		return nil
+	}
 	simTime := simulation.GetSimulationTime()
 
-	for _, node := range nodes {
-		p.updateThermalState(node, simTime, simulation)
-	}
-
-	// Calculate and print temperature statistics
-	if len(p.thermalStates) > 0 {
-		temperatures := make([]float64, 0, len(p.thermalStates))
-
-		var minTemp, maxTemp float64
-		var minNodeName, maxNodeName string
-		sumTemp := 0.0
-		first := true
-
-		for name, state := range p.thermalStates {
-			tempC := state.Temperature - 273.15 // Convert to Celsius
-			temperatures = append(temperatures, tempC)
-
-			// Inicializing min/max values with the first entry
-			if first {
-				minTemp = tempC
-				maxTemp = tempC
-				minNodeName = name
-				maxNodeName = name
-				first = false
-			} else {
-				// finding minimum and maximum temperatures with node names
-				if tempC < minTemp {
-					minTemp = tempC
-					minNodeName = name
-				}
-				if tempC > maxTemp {
-					maxTemp = tempC
-					maxNodeName = name
-				}
-			}
-			sumTemp += tempC
-		}
-
-		avgTemp := sumTemp / float64(len(temperatures))
-
-		// Calculate median
-		sort.Float64s(temperatures)
-		var medianTemp float64
-		n := len(temperatures)
-		if n%2 == 0 {
-			medianTemp = (temperatures[n/2-1] + temperatures[n/2]) / 2.0
-		} else {
-			medianTemp = temperatures[n/2]
-		}
-
-		// Print to console with node names
-		fmt.Printf("\n=== Thermal Statistics (Simulation Time: %v) ===\n", simTime)
-		fmt.Printf("Maximum Temperature: %.2f°C (%s)\n", maxTemp, maxNodeName)
-		fmt.Printf("Minimum Temperature: %.2f°C (%s)\n", minTemp, minNodeName)
-		fmt.Printf("Average Temperature: %.2f°C\n", avgTemp)
-		fmt.Printf("Median Temperature: %.2f°C\n", medianTemp)
-		fmt.Println("==================================================\n ")
-	}
-
-	return nil
-}
-
-func (p *ThermalSimPlugin) updateThermalState(node types.Node, simTime time.Time, simulation types.SimulationController) {
-	nodeName := node.GetName()
-
-	state, ok := p.thermalStates[nodeName]
-	if !ok {
-		state = types.NewSatellitePhysicalState(nodeName)
-		state.Timestamp = simTime
-		state.Temperature = 323.15 // Initialize to 50°C in Kelvin
-		p.thermalStates[nodeName] = state
-		return
-	}
-
-	deltaT := simTime.Sub(state.Timestamp).Seconds()
-	if deltaT <= 0 {
-		return
-	}
-
-	// Safely Resolve Thermal Environment Plugin from repository at runtime
+	// Safely resolve Thermal Environment Plugin once before launching parallel workers
 	if p.thermalEnvPlugin == nil {
 		repo := simulation.GetStatePluginRepository()
 		if repo != nil {
@@ -169,11 +96,53 @@ func (p *ThermalSimPlugin) updateThermalState(node types.Node, simTime time.Time
 		}
 	}
 
-	thermalProps := p.getThermalProperties(node)
+	// Pre-allocate state pointers on the first simulation step
+	if len(p.orderedStates) != len(nodes) {
+		p.mu.Lock()
+		p.orderedStates = make([]*types.SatellitePhysicalState, len(nodes))
+		for i, n := range nodes {
+			name := n.GetName()
+			st, exists := p.thermalStates[name]
+			if !exists {
+				st = types.NewSatellitePhysicalState(name)
+				st.Timestamp = simTime
+				st.Temperature = 323.15 // Initialize to 50°C in Kelvin
+				p.thermalStates[name] = st
+			}
+			p.orderedStates[i] = st
+		}
+		p.mu.Unlock()
+		return nil
+	}
+
+	// Multi-threaded lock-free differential equation integration across all satellites
+	indices := make([]int, len(nodes))
+	for i := range nodes {
+		indices[i] = i
+	}
+
+	helper.ParallelFor(indices, func(i int) {
+		p.updateThermalStateForIndex(nodes[i], p.orderedStates[i], simTime)
+	})
+
+	return nil
+}
+
+func (p *ThermalSimPlugin) updateThermalStateForIndex(n types.Node, state *types.SatellitePhysicalState, simTime time.Time) {
+	deltaT := simTime.Sub(state.Timestamp).Seconds()
+	if deltaT <= 0 {
+		return
+	}
+
+	thermalProps := p.getThermalProperties(n)
 	thermalMass := thermalProps.ThermalMass
 	if thermalMass <= 0 {
 		thermalMass = 3500.0
 	}
+
+	// Fetch environmental heat ONCE per satellite per step (O(1) in precomputed mode)
+	envHeat := p.resolveEnvironmentalHeat(n)
+	heatGeneration := p.calculateInternalHeatGeneration(n)
 
 	maxStepSize := p.timeStep
 	if maxStepSize <= 0 {
@@ -186,16 +155,13 @@ func (p *ThermalSimPlugin) updateThermalState(node types.Node, simTime time.Time
 	currentTemp := state.Temperature
 
 	for i := 0; i < numSteps; i++ {
-		currentTemp = p.integrateOneStep(node, currentTemp, maxStepSize, thermalMass, thermalProps)
+		heatOutput := p.calculateHeatOutput(currentTemp, thermalProps)
+		currentTemp += (maxStepSize / thermalMass) * (envHeat.TotalHeat + heatGeneration - heatOutput)
 	}
 
 	if remainder > 0 {
-		currentTemp = p.integrateOneStep(node, currentTemp, remainder, thermalMass, thermalProps)
-	}
-
-	var envHeat types.EnvironmentalHeat
-	if p.thermalEnvPlugin != nil {
-		envHeat = p.thermalEnvPlugin.GetEnvironmentalHeat(node)
+		heatOutput := p.calculateHeatOutput(currentTemp, thermalProps)
+		currentTemp += (remainder / thermalMass) * (envHeat.TotalHeat + heatGeneration - heatOutput)
 	}
 
 	state.Temperature = currentTemp
@@ -203,22 +169,31 @@ func (p *ThermalSimPlugin) updateThermalState(node types.Node, simTime time.Time
 	state.Timestamp = simTime
 }
 
-func (p *ThermalSimPlugin) integrateOneStep(node types.Node, currentTemp float64, dt float64, thermalMass float64, thermalProps types.ThermalProperties) float64 {
-	var envHeat types.EnvironmentalHeat
-	if p.thermalEnvPlugin != nil {
-		envHeat = p.thermalEnvPlugin.GetEnvironmentalHeat(node)
+func (p *ThermalSimPlugin) resolveEnvironmentalHeat(n types.Node) types.EnvironmentalHeat {
+	if pSat, ok := n.(*node.PrecomputedSatellite); ok {
+		if st, hasState := pSat.GetCurrentPrecomputedState(); hasState {
+			return types.EnvironmentalHeat{
+				SolarHeat:            st.SolarHeat,
+				AlbedoHeat:           st.AlbedoHeat,
+				IRHeat:               st.IRHeat,
+				TotalHeat:            st.TotalEnvironmentalHeat,
+				SunlightExposure:     st.SunlightExposure,
+				BetaAngle:            st.BetaAngle,
+				InEclipse:            st.InEclipse,
+				EclipseDepth:         st.EclipseDepth,
+				SolarPowerGeneration: st.SolarPowerGeneration,
+			}
+		}
 	}
-
-	heatGeneration := p.calculateInternalHeatGeneration(node)
-	heatOutput := p.calculateHeatOutput(currentTemp, thermalProps)
-	dT := (dt / thermalMass) * (envHeat.TotalHeat + heatGeneration - heatOutput)
-
-	return currentTemp + dT
+	if p.thermalEnvPlugin != nil {
+		return p.thermalEnvPlugin.GetEnvironmentalHeat(n)
+	}
+	return types.EnvironmentalHeat{}
 }
 
-func (p *ThermalSimPlugin) calculateInternalHeatGeneration(node types.Node) float64 {
+func (p *ThermalSimPlugin) calculateInternalHeatGeneration(n types.Node) float64 {
 	if p.batteryPlugin == nil {
-		compNode := node.GetComputing()
+		compNode := n.GetComputing()
 		if compNode == nil {
 			return 0
 		}
@@ -228,7 +203,7 @@ func (p *ThermalSimPlugin) calculateInternalHeatGeneration(node types.Node) floa
 		return 0
 	}
 
-	state, err := p.batteryPlugin.GetBatteryState(node)
+	state, err := p.batteryPlugin.GetBatteryState(n)
 	if err != nil {
 		return 0
 	}
@@ -245,11 +220,12 @@ func (p *ThermalSimPlugin) calculateHeatOutput(temperature float64, thermalProps
 		temperature = 1.0
 	}
 
-	return emissivity * sigma * surfaceArea * math.Pow(temperature, 4)
+	t2 := temperature * temperature
+	return emissivity * sigma * surfaceArea * (t2 * t2)
 }
 
-func (p *ThermalSimPlugin) getThermalProperties(node types.Node) types.ThermalProperties {
-	if props, ok := p.thermalProps[node.GetName()]; ok {
+func (p *ThermalSimPlugin) getThermalProperties(n types.Node) types.ThermalProperties {
+	if props, ok := p.thermalProps[n.GetName()]; ok {
 		return props
 	}
 	if props, ok := p.thermalProps["default"]; ok {
@@ -258,64 +234,74 @@ func (p *ThermalSimPlugin) getThermalProperties(node types.Node) types.ThermalPr
 	return types.DefaultThermalProperties()
 }
 
-func (p *ThermalSimPlugin) GetThermalState(node types.Node) (*types.SatellitePhysicalState, error) {
-	state, ok := p.thermalStates[node.GetName()]
+func (p *ThermalSimPlugin) GetThermalState(n types.Node) (*types.SatellitePhysicalState, error) {
+	if pSat, ok := n.(*node.PrecomputedSatellite); ok {
+		if pSat.SatIndex >= 0 && pSat.SatIndex < len(p.orderedStates) {
+			return p.orderedStates[pSat.SatIndex], nil
+		}
+	}
+	p.mu.RLock()
+	state, ok := p.thermalStates[n.GetName()]
+	p.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("thermal state not found for node %s", node.GetName())
+		return nil, fmt.Errorf("thermal state not found for node %s", n.GetName())
 	}
 	return state, nil
 }
 
-func (p *ThermalSimPlugin) GetTemperature(node types.Node) (float64, error) {
-	state, err := p.GetThermalState(node)
+func (p *ThermalSimPlugin) GetTemperature(n types.Node) (float64, error) {
+	state, err := p.GetThermalState(n)
 	if err != nil {
 		return 0, err
 	}
 	return state.Temperature, nil
 }
 
-func (p *ThermalSimPlugin) GetTemperatureCelsius(node types.Node) (float64, error) {
-	tempK, err := p.GetTemperature(node)
+func (p *ThermalSimPlugin) GetTemperatureCelsius(n types.Node) (float64, error) {
+	tempK, err := p.GetTemperature(n)
 	if err != nil {
 		return 0, err
 	}
 	return tempK - 273.15, nil
 }
 
-func (p *ThermalSimPlugin) IsOverheating(node types.Node) bool {
-	state, err := p.GetThermalState(node)
+func (p *ThermalSimPlugin) IsOverheating(n types.Node) bool {
+	state, err := p.GetThermalState(n)
 	if err != nil {
 		return false
 	}
-	thermalProps := p.getThermalProperties(node)
-
-	// Consider overheating if the temperature is within 10 degrees of the maximum threshold
+	thermalProps := p.getThermalProperties(n)
 	return state.Temperature > (thermalProps.MaxTemperature - 10.0)
 }
 
-func (p *ThermalSimPlugin) IsHypothermia(node types.Node) bool {
-	state, err := p.GetThermalState(node)
+func (p *ThermalSimPlugin) IsHypothermia(n types.Node) bool {
+	state, err := p.GetThermalState(n)
 	if err != nil {
 		return false
 	}
-	thermalProps := p.getThermalProperties(node)
+	thermalProps := p.getThermalProperties(n)
 	return state.Temperature < thermalProps.MinTemperature*1.2
 }
 
 func (p *ThermalSimPlugin) GetAllStates() map[string]*types.SatellitePhysicalState {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return p.thermalStates
 }
 
 func (p *ThermalSimPlugin) Reset() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.thermalStates = make(map[string]*types.SatellitePhysicalState)
+	p.orderedStates = nil
 }
 
-func (p *ThermalSimPlugin) GetEffectiveCapacity(node types.Node) float64 {
+func (p *ThermalSimPlugin) GetEffectiveCapacity(n types.Node) float64 {
 	if !p.enableFeedback {
 		return 1.0
 	}
 
-	state, err := p.GetThermalState(node)
+	state, err := p.GetThermalState(n)
 	if err != nil {
 		return 1.0
 	}
@@ -338,12 +324,12 @@ func (p *ThermalSimPlugin) GetEffectiveCapacity(node types.Node) float64 {
 	return efficiency
 }
 
-func (p *ThermalSimPlugin) GetInternalResistance(node types.Node) float64 {
+func (p *ThermalSimPlugin) GetInternalResistance(n types.Node) float64 {
 	if !p.enableFeedback {
 		return 0.1
 	}
 
-	state, err := p.GetThermalState(node)
+	state, err := p.GetThermalState(n)
 	if err != nil {
 		return 0.1
 	}

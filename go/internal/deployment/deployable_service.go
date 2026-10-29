@@ -14,7 +14,8 @@ type DeployableService struct {
 	ServiceName    string     // The name of the service
 	Memory         float64    // Memory required by the service
 	sizeBytes      uint64     // Size of the service payload in bytes
-	requiredCycles uint64     // Total CPU cycles required to execute the service
+	initialCycles  uint64     // Total initial CPU cycles required by the service
+	requiredCycles uint64     // Remaining CPU cycles required to execute the service
 	deployed       bool       // Indicates whether the service is currently deployed
 	OriginGS       types.Node // The originating Ground Station of the service
 	CreatedAt      time.Time  // Timestamp when the service was created
@@ -32,10 +33,12 @@ func NewDeployableService(serviceName string, megaCycles uint64, memory float64,
 		return nil, fmt.Errorf("memory must be greater than zero, got %f", memory)
 	}
 
+	totalCycles := megaCycles * 1000000
 	return &DeployableService{
 		ServiceName:    serviceName,
 		Memory:         memory,
-		requiredCycles: megaCycles * 1000000, // Megacycles to actual cycles
+		initialCycles:  totalCycles,
+		requiredCycles: totalCycles, // Megacycles to actual cycles
 		sizeBytes:      sizeBytes,
 		OriginGS:       originGS,
 		CreatedAt:      createdAt,
@@ -73,8 +76,11 @@ func (s *DeployableService) ExecuteCycles(cycles uint64) (bool, uint64) {
 	}
 }
 
-// ÚJ: Implementáljuk a types.DeployableService CreateResult metódusát
+// CreateResult constructs a TaskResult with the total consumed compute cycles.
 func (s *DeployableService) CreateResult(consumedCapacity uint64) types.TaskResult {
+	if consumedCapacity == 0 {
+		consumedCapacity = s.initialCycles
+	}
 	return &TaskResultImpl{
 		ServiceName:      s.GetServiceName(),
 		OriginGS:         s.GetOriginGS(),

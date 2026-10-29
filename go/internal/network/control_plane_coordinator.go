@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/polaris-slo-cloud/stardust-go/internal/node"
+	"github.com/polaris-slo-cloud/stardust-go/pkg/helper"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
@@ -16,27 +17,38 @@ func NewControlPlaneCoordinator() *ControlPlaneCoordinator {
 }
 
 // UpdateMappings evaluates the physical topology and assigns logical control plane ownership.
-// It checks if precomputed mappings exist for the current tick; if so, it resolves them via names.
-// Otherwise, it calculates them on the fly based on geometric distances.
+// In Precomputed Mode, if step buffers are active, mappings are already resolved in O(1) via AdvanceToStep.
+// In Live Mode, distance evaluations across all satellites are executed concurrently via ParallelFor.
 func (c *ControlPlaneCoordinator) UpdateMappings(sats []types.Satellite, gss []types.GroundStation, simTime time.Time) {
+	if len(sats) == 0 || len(gss) == 0 {
+		return
+	}
+
+	// Fast path: if running in precomputed mode with O(1) step buffers already populated, return immediately.
+	if pSat, ok := sats[0].(*node.PrecomputedSatellite); ok {
+		if _, hasStepState := pSat.GetCurrentPrecomputedState(); hasStepState && pSat.GetCoordinatingGS() != nil {
+			return
+		}
+	}
+
 	// Build a fast lookup map for ground stations by Name (O(1) retrieval)
-	gsMap := make(map[string]types.GroundStation)
+	gsMap := make(map[string]types.GroundStation, len(gss))
 	for _, gs := range gss {
 		gsMap[gs.GetName()] = gs
 	}
 
-	// Map to aggregate visible satellites for each GS: GS Name -> List of Satellites
-	visibilityMap := make(map[string][]types.Satellite)
-	for _, gs := range gss {
-		visibilityMap[gs.GetName()] = []types.Satellite{}
+	// Parallel evaluation: each satellite finds its coordinating Ground Station concurrently
+	assignedGS := make([]types.GroundStation, len(sats))
+	satIndices := make([]int, len(sats))
+	for i := range sats {
+		satIndices[i] = i
 	}
 
-	// Process each satellite to find its overseeing Ground Station
-	for _, sat := range sats {
+	helper.ParallelFor(satIndices, func(i int) {
+		sat := sats[i]
 		var nearestGS types.GroundStation
 
-		// 1. Precomputed Mode Resolution
-		// Check if the node is a PrecomputedSatellite and has data for the current tick.
+		// 1. Precomputed Mode Resolution (Fallback by Name)
 		if pSat, ok := sat.(*node.PrecomputedSatellite); ok {
 			precomputedGsName := pSat.GetPrecomputedGSName(simTime)
 			if precomputedGsName != "" {
@@ -46,8 +58,7 @@ func (c *ControlPlaneCoordinator) UpdateMappings(sats []types.Satellite, gss []t
 			}
 		}
 
-		// 2. Simulated Mode (Fallback Calculation)
-		// If no precomputed data is available, find the closest GS geometrically.
+		// 2. Simulated Mode (Geometric Distance Calculation)
 		if nearestGS == nil {
 			minDist := math.MaxFloat64
 			for _, gs := range gss {
@@ -59,16 +70,24 @@ func (c *ControlPlaneCoordinator) UpdateMappings(sats []types.Satellite, gss []t
 			}
 		}
 
-		// Assign the logical pointer to the satellite
 		sat.SetCoordinatingGS(nearestGS)
+		assignedGS[i] = nearestGS
+	})
 
-		// Aggregate back to the assigned Ground Station
-		if nearestGS != nil {
-			visibilityMap[nearestGS.GetName()] = append(visibilityMap[nearestGS.GetName()], sat)
+	// Aggregate visible satellites per Ground Station (deterministic order)
+	visibilityMap := make(map[string][]types.Satellite, len(gss))
+	for _, gs := range gss {
+		visibilityMap[gs.GetName()] = make([]types.Satellite, 0, len(sats)/len(gss)+8)
+	}
+
+	for i, sat := range sats {
+		if gs := assignedGS[i]; gs != nil {
+			name := gs.GetName()
+			visibilityMap[name] = append(visibilityMap[name], sat)
 		}
 	}
 
-	// 3. Apply the aggregated satellite lists to the Ground Stations
+	// Apply the aggregated satellite lists to the Ground Stations
 	for _, gs := range gss {
 		gs.SetVisibleSatellites(visibilityMap[gs.GetName()])
 	}

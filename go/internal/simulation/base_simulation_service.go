@@ -17,10 +17,13 @@ type BaseSimulationService struct {
 	satellites  []types.Satellite
 	groundNodes []types.GroundStation
 
-	stepCount    int
-	maxStepCount int
-	autorun      bool
-	simTime      time.Time
+	stepCount     int
+	maxStepCount  int
+	autorun       bool
+	precomputed   bool
+	startTime     time.Time
+	simTime       time.Time
+	stepStartTime time.Time
 
 	lock              sync.Mutex
 	runSimulationStep func(func(time.Time) time.Time)
@@ -34,6 +37,7 @@ func NewBaseSimulationService(config *configs.SimulationConfig, runSimulationSte
 		groundNodes:       []types.GroundStation{},
 		stepCount:         0,
 		maxStepCount:      config.StepCount,
+		startTime:         config.SimulationStartTime,
 		simTime:           config.SimulationStartTime,
 		runSimulationStep: runSimulationStep,
 	}
@@ -45,10 +49,10 @@ func (s *BaseSimulationService) InjectSatellites(satellites []types.Node) error 
 	for i, n := range satellites {
 		sat, ok := n.(types.Satellite)
 		if !ok {
-			return fmt.Errorf("InjectSatellites: expected *node.Satellite but got %T", n)
+			return fmt.Errorf("InjectSatellites: expected types.Satellite but got %T", n)
 		}
 		s.satellites[i] = sat
-		s.all = append(s.all, sat) // Add satellites as generic nodes
+		s.all = append(s.all, sat)
 	}
 
 	log.Printf("Injected %d satellites into simulation", len(s.satellites))
@@ -61,10 +65,10 @@ func (s *BaseSimulationService) InjectGroundStations(groundStations []types.Node
 	for i, n := range groundStations {
 		gs, ok := n.(types.GroundStation)
 		if !ok {
-			return fmt.Errorf("InjectGroundStations: expected *node.GroundStation but got %T", n)
+			return fmt.Errorf("InjectGroundStations: expected types.GroundStation but got %T", n)
 		}
 		s.groundNodes[i] = gs
-		s.all = append(s.all, gs) // Add ground station as generic nodes
+		s.all = append(s.all, gs)
 	}
 
 	log.Printf("Injected %d ground stations into simulation", len(s.groundNodes))
@@ -78,25 +82,23 @@ func (s *BaseSimulationService) StartAutorun() <-chan struct{} {
 		s.lock.Unlock()
 		done := make(chan struct{})
 		close(done)
-		return done // autorun already active
+		return done
 	}
 	s.autorun = true
 	s.lock.Unlock()
 
 	done := make(chan struct{})
 	go func() {
-		// While autorun is enabled, run simulation steps at configured intervals
 		for {
-			if !s.autorun || s.stepCount > s.maxStepCount {
+			if !s.autorun || s.stepCount >= s.maxStepCount {
 				break
 			}
 
 			s.runSimulationStep(func(prev time.Time) time.Time {
 				return prev.Add(time.Duration(s.config.StepMultiplier) * time.Second)
 			})
-			s.stepCount++
 		}
-		close(done) // closed when simulation loop exits
+		close(done)
 	}()
 
 	return done
@@ -107,10 +109,7 @@ func (s *BaseSimulationService) GetAllNodes() []types.Node {
 }
 
 func (s *BaseSimulationService) GetSatellites() []types.Satellite {
-	// TODO find out why copying is needed here to avoid
-	sats := make([]types.Satellite, len(s.satellites))
-	copy(sats, s.satellites)
-	return sats
+	return s.satellites
 }
 
 func (s *BaseSimulationService) GetGroundStations() []types.GroundStation {
@@ -119,6 +118,29 @@ func (s *BaseSimulationService) GetGroundStations() []types.GroundStation {
 
 func (s *BaseSimulationService) GetSimulationTime() time.Time {
 	return s.simTime
+}
+
+func (s *BaseSimulationService) GetSimulationStartTime() time.Time {
+	return s.startTime
+}
+
+func (s *BaseSimulationService) GetCurrentStep() int {
+	return s.stepCount
+}
+
+func (s *BaseSimulationService) GetMaxStepCount() int {
+	return s.maxStepCount
+}
+
+func (s *BaseSimulationService) GetStepWallDuration() time.Duration {
+	if s.stepStartTime.IsZero() {
+		return 0
+	}
+	return time.Since(s.stepStartTime)
+}
+
+func (s *BaseSimulationService) IsPrecomputed() bool {
+	return s.precomputed
 }
 
 // StopAutorun disables autorun mode

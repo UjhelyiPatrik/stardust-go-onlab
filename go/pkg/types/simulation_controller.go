@@ -38,6 +38,21 @@ type SimulationController interface {
 	// GetSimulationTime return the current simulation time
 	GetSimulationTime() time.Time
 
+	// GetSimulationStartTime returns the initial start time of the simulation
+	GetSimulationStartTime() time.Time
+
+	// GetCurrentStep returns the 1-based index of the current simulation step
+	GetCurrentStep() int
+
+	// GetMaxStepCount returns the configured total number of simulation steps
+	GetMaxStepCount() int
+
+	// GetStepWallDuration returns the wall-clock duration elapsed since the current step started
+	GetStepWallDuration() time.Duration
+
+	// IsPrecomputed returns true if the simulation is replaying precomputed physical/link states
+	IsPrecomputed() bool
+
 	// GetStatePluginRepository returns the repository which handles the state plugins
 	GetStatePluginRepository() *StatePluginRepository
 

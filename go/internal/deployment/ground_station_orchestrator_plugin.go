@@ -1,8 +1,10 @@
 package deployment
 
 import (
-	"log"
+	"math"
+	"sort"
 
+	"github.com/polaris-slo-cloud/stardust-go/internal/metrics"
 	"github.com/polaris-slo-cloud/stardust-go/internal/network"
 	"github.com/polaris-slo-cloud/stardust-go/internal/simplugin"
 	"github.com/polaris-slo-cloud/stardust-go/internal/stateplugin"
@@ -12,7 +14,19 @@ import (
 
 var _ types.SimulationPlugin = (*GroundStationOrchestratorPlugin)(nil)
 
-// GroundStationOrchestratorPlugin executes local deployment and eviction logic for each Ground Station.
+// rankedSatelliteCandidate holds a pre-evaluated, pre-routed candidate satellite and its composite fitness score.
+type rankedSatelliteCandidate struct {
+	satellite     types.Satellite
+	computing     types.Computing
+	combinedScore float64
+}
+
+type inPlaceTaskQueueGS interface {
+	PeekTaskQueue() []types.DeployableService
+	SetTaskQueue(tasks []types.DeployableService)
+}
+
+// GroundStationOrchestratorPlugin executes localized task placement and proactive eviction for each Ground Station.
 type GroundStationOrchestratorPlugin struct {
 	strategyName   string
 	Strategy       OrchestrationStrategy
@@ -44,9 +58,12 @@ func (p *GroundStationOrchestratorPlugin) Name() string {
 	return "GroundStationOrchestratorPlugin"
 }
 
-// PostSimulationStep runs the localized orchestration for all ground stations concurrently.
+// PostSimulationStep runs localized orchestration for all ground stations concurrently across CPU cores.
 func (p *GroundStationOrchestratorPlugin) PostSimulationStep(sim types.SimulationController) error {
 	gss := sim.GetGroundStations()
+	if len(gss) == 0 {
+		return nil
+	}
 
 	var sunPlugin stateplugin.SunStatePlugin
 	repo := sim.GetStatePluginRepository()
@@ -59,10 +76,6 @@ func (p *GroundStationOrchestratorPlugin) PostSimulationStep(sim types.Simulatio
 		}
 	}
 
-	// ==========================================
-	// CONCURRENCY OPTIMIZATION
-	// Execute each Ground Station's orchestration in a separate Goroutine.
-	// ==========================================
 	helper.ParallelFor(gss, func(gs types.GroundStation) {
 		p.processGroundStation(gs, sunPlugin)
 	})
@@ -72,84 +85,192 @@ func (p *GroundStationOrchestratorPlugin) PostSimulationStep(sim types.Simulatio
 
 func (p *GroundStationOrchestratorPlugin) processGroundStation(gs types.GroundStation, sunPlugin stateplugin.SunStatePlugin) {
 	visibleSats := gs.GetVisibleSatellites()
-
-	// OPTIMALIZÁCIÓ 1: Ha a GS felett épp nincs aktív műhold, nincs értelme számolni.
-	// A queue-ban lévő taskok megvárják, amíg jön egy műhold (Store & Forward).
 	if len(visibleSats) == 0 {
 		return
 	}
 
+	var evictedCount uint64
+	var deployedCount uint64
+
 	// ==========================================
-	// A) Proactive Offloading (Evaluation)
+	// A) Proactive Offloading (Health Evaluation)
 	// ==========================================
 	for _, sat := range visibleSats {
 		comp := sat.GetComputing()
-		if comp == nil {
-			continue
-		}
-		services := comp.GetServices()
-		if len(services) == 0 {
+		if comp == nil || comp.GetActiveServiceCount() == 0 {
 			continue
 		}
 
-		isCritical := false
-		evictionReason := "NONE"
-
-		// Strictly environmental health-check (Task is nil)
-		if !isCritical {
-			score := p.Strategy.Evaluate(gs, sat, nil, sunPlugin, p.thermalPlugin, p.batteryPlugin)
-			if score < 0 {
-				isCritical = true
-				evictionReason = "PROACTIVE_STRATEGY_VIOLATION"
+		score := p.Strategy.Evaluate(gs, sat, nil, sunPlugin, p.thermalPlugin, p.batteryPlugin)
+		if score < 0 {
+			services := comp.GetServices()
+			if len(services) == 0 {
+				continue
 			}
-		}
 
-		if isCritical {
+			minServiceMem := math.MaxFloat64
 			for _, task := range services {
-				bestSat := p.findBestSatellite(sat, task, visibleSats, sunPlugin)
+				if m := task.GetMemoryUsage(); m < minServiceMem {
+					minServiceMem = m
+				}
+			}
+
+			candidates := p.buildRankedCandidatesWithMinMem(sat, visibleSats, sunPlugin, minServiceMem)
+			if len(candidates) == 0 {
+				continue
+			}
+
+			minUnplaceableMem := math.MaxFloat64
+			for _, task := range services {
+				reqMem := task.GetMemoryUsage()
+				if reqMem >= minUnplaceableMem {
+					continue
+				}
+				bestSat := selectBestFitFromRanked(task, candidates)
 				if bestSat != nil && bestSat.GetName() != sat.GetName() {
 					_, err := p.networkService.Transmit(sat, bestSat, task)
 					if err == nil {
-						comp.RemoveDeploymentAsync(task)
-						bestSat.GetComputing().TryPlaceDeploymentAsync(task)
-						log.Printf("[Eviction] GS %s migrated %s from %s to %s (Reason: %s)", gs.GetName(), task.GetServiceName(), sat.GetName(), bestSat.GetName(), evictionReason)
+						_ = comp.RemoveDeploymentAsync(task)
+						placed, _ := bestSat.GetComputing().TryPlaceDeploymentAsync(task)
+						if placed {
+							evictedCount++
+						}
 					}
+				} else if bestSat == nil {
+					minUnplaceableMem = reqMem
 				}
 			}
 		}
 	}
 
-	// ==========================================
-	// B) Deployment of New Tasks
-	// ==========================================
-	queue := gs.GetTaskQueue()
-	gs.ClearTaskQueue()
+	if evictedCount > 0 {
+		metrics.RecordTasksEvicted(evictedCount)
+	}
 
-	for _, task := range queue {
-		// OPTIMALIZÁCIÓ 3: Új feladatot is CSAK a lokális poolból (visibleSats) választott műholdra küldünk!
-		bestSat := p.findBestSatellite(gs, task, visibleSats, sunPlugin)
-		if bestSat != nil {
-			_, err := p.networkService.Transmit(gs, bestSat, task)
-			if err == nil {
-				placed, _ := bestSat.GetComputing().TryPlaceDeploymentAsync(task)
-				if placed {
-					log.Printf("[Deployment] GS %s placed %s on %s", gs.GetName(), task.GetServiceName(), bestSat.GetName())
-					continue
-				}
+	// ==========================================
+	// B) Deployment of New Tasks (Zero-Copy In-Place Queue Dispatch)
+	// ==========================================
+	if fastQ, ok := gs.(inPlaceTaskQueueGS); ok {
+		queue := fastQ.PeekTaskQueue()
+		if len(queue) == 0 {
+			return
+		}
+
+		minQueueMem := math.MaxFloat64
+		for _, task := range queue {
+			if m := task.GetMemoryUsage(); m < minQueueMem {
+				minQueueMem = m
 			}
 		}
-		// Ha nincs megfelelő lokális célpont, a feladat visszakerül a sorba (megvárja a következő műholdat)
+
+		// Evaluate and rank visible satellites that have at least minQueueMem free RAM
+		rankedCandidates := p.buildRankedCandidatesWithMinMem(gs, visibleSats, sunPlugin, minQueueMem)
+		if len(rankedCandidates) == 0 {
+			return
+		}
+
+		minUnplaceableMem := math.MaxFloat64
+		writeIdx := 0
+
+		for i, task := range queue {
+			reqMem := task.GetMemoryUsage()
+			if reqMem < minUnplaceableMem {
+				bestSat := selectBestFitFromRanked(task, rankedCandidates)
+				if bestSat != nil {
+					_, err := p.networkService.Transmit(gs, bestSat, task)
+					if err == nil {
+						placed, _ := bestSat.GetComputing().TryPlaceDeploymentAsync(task)
+						if placed {
+							deployedCount++
+							continue
+						}
+					}
+				} else {
+					minUnplaceableMem = reqMem
+				}
+			}
+			queue[writeIdx] = task
+			if writeIdx != i {
+				queue[i] = nil
+			}
+			writeIdx++
+		}
+
+		for i := writeIdx; i < len(queue); i++ {
+			queue[i] = nil
+		}
+		fastQ.SetTaskQueue(queue[:writeIdx])
+
+		if deployedCount > 0 {
+			metrics.RecordTasksDeployed(deployedCount)
+		}
+		return
+	}
+
+	queue := gs.GetTaskQueue()
+	if len(queue) == 0 {
+		return
+	}
+
+	minQueueMem := math.MaxFloat64
+	for _, task := range queue {
+		if m := task.GetMemoryUsage(); m < minQueueMem {
+			minQueueMem = m
+		}
+	}
+
+	rankedCandidates := p.buildRankedCandidatesWithMinMem(gs, visibleSats, sunPlugin, minQueueMem)
+	if len(rankedCandidates) == 0 {
+		return
+	}
+
+	gs.ClearTaskQueue()
+	minUnplaceableMem := math.MaxFloat64
+
+	for _, task := range queue {
+		reqMem := task.GetMemoryUsage()
+		if reqMem < minUnplaceableMem {
+			bestSat := selectBestFitFromRanked(task, rankedCandidates)
+			if bestSat != nil {
+				_, err := p.networkService.Transmit(gs, bestSat, task)
+				if err == nil {
+					placed, _ := bestSat.GetComputing().TryPlaceDeploymentAsync(task)
+					if placed {
+						deployedCount++
+						continue
+					}
+				}
+			} else {
+				minUnplaceableMem = reqMem
+			}
+		}
 		gs.EnqueueTask(task)
+	}
+
+	if deployedCount > 0 {
+		metrics.RecordTasksDeployed(deployedCount)
 	}
 }
 
-// findBestSatellite evaluates local candidates using Strategy, Resources, and Network Cost.
-func (p *GroundStationOrchestratorPlugin) findBestSatellite(source types.Node, task types.DeployableService, candidateSats []types.Satellite, sunPlugin stateplugin.SunStatePlugin) types.Satellite {
-	var bestSat types.Satellite
-	bestCombinedScore := -1.0
+// buildRankedCandidatesWithMinMem evaluates health, strategy score, minimum memory, and network latency once per candidate satellite,
+// returning eligible candidates sorted in descending order of their composite score.
+func (p *GroundStationOrchestratorPlugin) buildRankedCandidatesWithMinMem(source types.Node, candidateSats []types.Satellite, sunPlugin stateplugin.SunStatePlugin, minReqMem float64) []rankedSatelliteCandidate {
+	router := source.GetRouter()
+	if router == nil {
+		return nil
+	}
+	if minReqMem <= 0 {
+		minReqMem = 1e-9
+	}
+
+	var ranked []rankedSatelliteCandidate
 
 	for _, targetSat := range candidateSats {
-		if !targetSat.GetComputing().CanPlace(task) {
+		if targetSat == source {
+			continue
+		}
+		comp := targetSat.GetComputing()
+		if comp == nil || comp.MemoryAvailable() < minReqMem {
 			continue
 		}
 		if p.thermalPlugin != nil && p.thermalPlugin.IsOverheating(targetSat) {
@@ -159,21 +280,18 @@ func (p *GroundStationOrchestratorPlugin) findBestSatellite(source types.Node, t
 			continue
 		}
 
-		strategyScore := p.Strategy.Evaluate(source, targetSat, task, sunPlugin, p.thermalPlugin, p.batteryPlugin)
+		strategyScore := p.Strategy.Evaluate(source, targetSat, nil, sunPlugin, p.thermalPlugin, p.batteryPlugin)
 		if strategyScore < 0 {
 			continue
 		}
 
-		router := source.GetRouter()
-		if router == nil {
-			continue
-		}
-
-		// OPTIMALIZÁCIÓ 4: Mivel a targetSat garantáltan a lokális zónában (visibleSats) van,
-		// az útvonalkeresés (A*/Dijkstra) elképesztően gyors lesz, hiszen nagyon kevés ugrásból (hop) elérhető!
 		route, err := router.RouteToNode(targetSat)
 		if err != nil || !route.Reachable() {
 			continue
+		}
+
+		if ranked == nil {
+			ranked = make([]rankedSatelliteCandidate, 0, len(candidateSats))
 		}
 
 		latency := route.Latency()
@@ -182,18 +300,34 @@ func (p *GroundStationOrchestratorPlugin) findBestSatellite(source types.Node, t
 			networkScore = 100.0 / float64(100+latency)
 		}
 
-		resourceScore := targetSat.GetComputing().CpuAvailable() / 512.0
+		resourceScore := comp.CpuAvailable() / 512.0
 		if resourceScore > 1.0 {
 			resourceScore = 1.0
 		}
 
 		combinedScore := (strategyScore * 0.5) + (networkScore * 0.3) + (resourceScore * 0.2)
-
-		if combinedScore > bestCombinedScore {
-			bestCombinedScore = combinedScore
-			bestSat = targetSat
-		}
+		ranked = append(ranked, rankedSatelliteCandidate{
+			satellite:     targetSat,
+			computing:     comp,
+			combinedScore: combinedScore,
+		})
 	}
 
-	return bestSat
+	if len(ranked) > 1 {
+		sort.Slice(ranked, func(i, j int) bool {
+			return ranked[i].combinedScore > ranked[j].combinedScore
+		})
+	}
+
+	return ranked
+}
+
+// selectBestFitFromRanked returns the highest-scoring pre-ranked satellite that has enough memory for the task.
+func selectBestFitFromRanked(task types.DeployableService, ranked []rankedSatelliteCandidate) types.Satellite {
+	for i := range ranked {
+		if ranked[i].computing.CanPlace(task) {
+			return ranked[i].satellite
+		}
+	}
+	return nil
 }

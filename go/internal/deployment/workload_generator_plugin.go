@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/polaris-slo-cloud/stardust-go/configs"
+	"github.com/polaris-slo-cloud/stardust-go/internal/metrics"
 	"github.com/polaris-slo-cloud/stardust-go/pkg/types"
 )
 
@@ -51,6 +52,7 @@ func (p *WorkloadGeneratorPlugin) PostSimulationStep(sim types.SimulationControl
 		taskCount += p.rng.Intn(p.config.MaxTasksPerTick - p.config.MinTasksPerTick + 1)
 	}
 
+	var generatedCount uint64
 	for i := 0; i < taskCount; i++ {
 		// 2. Generate random attributes within configured bounds
 		megaCycles := p.config.MinMegaCycles + p.rng.Uint64()%(p.config.MaxMegaCycles-p.config.MinMegaCycles+1)
@@ -75,7 +77,9 @@ func (p *WorkloadGeneratorPlugin) PostSimulationStep(sim types.SimulationControl
 
 		// 5. Enqueue the task to the selected Ground Station
 		randomGS.EnqueueTask(task)
+		generatedCount++
 	}
 
+	metrics.RecordTasksGenerated(generatedCount)
 	return nil
 }

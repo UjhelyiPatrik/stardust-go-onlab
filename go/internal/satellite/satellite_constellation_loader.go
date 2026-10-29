@@ -52,32 +52,28 @@ func (s *SatelliteConstellationLoader) LoadSatelliteConstellation(dataSource str
 		return nil, err
 	}
 
-	// Constellation awareness (connect to future links)
-	for i, sat := range satellites {
-		if len(sat.GetISLProtocol().Links()) != i {
-			log.Printf("Satellite %s has %d ISL links", sat.GetName(), len(sat.GetISLProtocol().Links()))
+	// Constellation awareness (skip O(N^2) pre-allocation if protocol supports lazy link evaluation)
+	if len(satellites) > 0 {
+		if lazy, ok := satellites[0].GetISLProtocol().(interface{ SupportsLazyLinks() bool }); !ok || !lazy.SupportsLazyLinks() {
+			for i, sat := range satellites {
+				configureConstellation(sat, satellites[i+1:])
+			}
 		}
-
-		configureConstellation(sat, satellites[i+1:])
 	}
 	log.Printf("Loaded %d satellites", len(satellites))
 	return satellites, nil
 }
 
-// ConfigureConstellation configures a constellation of satellites by linking them.
+// configureConstellation links a satellite with all subsequent satellites in the constellation.
 func configureConstellation(s types.Satellite, satellites []types.Satellite) {
+	sProto := s.GetISLProtocol()
 	for _, satellite := range satellites {
-		// Skip if it's the same satellite (this) or if there's already a link
-		if satellite == s { // Or add more conditions here if needed (e.g., checking existing links)
+		if satellite == s {
 			continue
 		}
-
-		// Create a new ISL link between the current satellite and the other one
 		link := linktypes.NewIslLink(s, satellite)
-
-		// Locking to ensure thread safety while modifying ISLProtocol
-		s.GetISLProtocol().AddLink(link)         // Add link to this satellite's ISL protocol
-		satellite.GetISLProtocol().AddLink(link) // Add link to the other satellite's ISL protocol
+		sProto.AddLink(link)
+		satellite.GetISLProtocol().AddLink(link)
 	}
 }
 
