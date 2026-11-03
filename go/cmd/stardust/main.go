@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"runtime/pprof"
 	"strings"
 
 	"github.com/polaris-slo-cloud/stardust-go/configs"
@@ -75,7 +77,24 @@ func main() {
 		"./resources/configs/workloadConfig.yaml",
 		"Path to workload config file",
 	)
+	cpuProfile := flag.String(
+		"cpuprofile",
+		"",
+		"Path to write CPU profile to (for PGO/profiling)",
+	)
 	flag.Parse()
+
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			log.Fatalf("could not create CPU profile: %v", err)
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatalf("could not start CPU profile: %v", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
 
 	simulationPluginList := strings.Split(*simulationPluginString, ",")
 	if *simulationPluginString == "" {

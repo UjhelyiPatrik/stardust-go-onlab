@@ -10,7 +10,7 @@ type DarkStrategy struct{}
 
 func (s *DarkStrategy) Evaluate(source types.Node, target types.Satellite, task types.DeployableService, sunPlugin stateplugin.SunStatePlugin, thermalPlugin *simplugin.ThermalSimPlugin, batteryPlugin *simplugin.BatterySimPlugin) float64 {
 
-	// Termic discard: If we can't determine sunlight exposure or temperature, we exclude this satellite from consideration (score -1.0).
+	// Thermal discard: If we can't determine sunlight exposure or temperature, we exclude this satellite from consideration (score -1.0).
 	if sunPlugin == nil {
 		return -1.0
 	}

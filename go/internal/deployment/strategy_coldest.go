@@ -34,11 +34,11 @@ func (s *ColdestStrategy) Evaluate(source types.Node, target types.Satellite, ta
 		return -1.0
 	}
 
-	// Alapértelmezett értékek
+	// Default values
 	minTemp := -10.0
 	maxTemp := 50.0
 
-	// Csak akkor írjuk felül, ha a beolvasott érték értelmezhető (nem 0.0, vagy a típus specifikáció támogatja)
+	// Only overwrite if the read value is valid (non-zero, or supported by the type specification)
 	props := thermalPlugin.GetThermalProperties(target)
 	if props.MaxTemperature != 0.0 || props.MinTemperature != 0.0 {
 		minTemp = props.MinTemperature
